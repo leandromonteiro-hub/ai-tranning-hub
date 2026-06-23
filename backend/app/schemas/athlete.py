@@ -33,6 +33,13 @@ class AthleteProfileBase(BaseModel):
     primary_discipline: str | None = None
     years_training: int | None = None
     notes: str | None = None
+    goals: str | None = None
+    weekly_hours: float | None = None
+    weekly_days: int | None = None
+    injury_history: str | None = None
+    medical_conditions: str | None = None
+    has_power_meter: bool = False
+    has_hr_monitor: bool = False
 
 
 class AthleteProfileUpdate(AthleteProfileBase):

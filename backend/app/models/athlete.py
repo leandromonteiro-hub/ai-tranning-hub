@@ -44,6 +44,13 @@ class AthleteProfile(Base, TenantMixin):
     primary_discipline: Mapped[str | None] = mapped_column(String(32), nullable=True)  # XCO/XCM/...
     years_training: Mapped[int | None] = mapped_column(Integer, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    goals: Mapped[str | None] = mapped_column(Text, nullable=True)
+    weekly_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    weekly_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    injury_history: Mapped[str | None] = mapped_column(Text, nullable=True)
+    medical_conditions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    has_power_meter: Mapped[bool] = mapped_column(Boolean, default=False)
+    has_hr_monitor: Mapped[bool] = mapped_column(Boolean, default=False)
 
     athlete: Mapped[Athlete] = relationship(back_populates="profile")
 
