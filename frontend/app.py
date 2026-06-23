@@ -1,9 +1,9 @@
 """Athlete AI Training Hub — Streamlit validation UI.
 
 Minimal, purpose-built for the 2-athlete validation: log in, import history,
-see the CTL/ATL/TSB chart, request a recommendation, and give feedback. Chosen
-over Next.js for the MVP because it ships a working feedback loop in one Python
-codebase with near-zero frontend overhead.
+set a target race, generate a periodized plan, request a phase-aware
+recommendation, and give feedback. Chosen over Next.js for the MVP because it
+ships a working feedback loop in one Python codebase with near-zero overhead.
 """
 from __future__ import annotations
 
@@ -40,13 +40,7 @@ def login_view() -> None:
                 st.error(f"Falha no login: {resp.text}")
 
 
-def dashboard(token: str) -> None:
-    me = api("GET", "/athletes/me", token=token).json()
-    st.sidebar.success(f"Conectado: {me.get('full_name', '')}")
-    if st.sidebar.button("Sair"):
-        st.session_state.pop("token", None)
-        st.rerun()
-
+def _sample_workouts_sidebar(token: str) -> None:
     with st.sidebar.expander("🧪 Treinos de teste"):
         st.caption(
             "Baixe um treino estruturado de exemplo. **.zwo** para importar no "
@@ -74,99 +68,118 @@ def dashboard(token: str) -> None:
                         key=f"sample_{template}_{ext}",
                     )
 
+
+def load_tab(token: str) -> None:
+    st.subheader("CTL (fitness) · ATL (fadiga) · TSB (forma)")
+    if st.button("Recalcular métricas"):
+        api("POST", "/metrics/load/recompute", token=token)
+    resp = api("GET", "/metrics/load", token=token)
+    rows = resp.json() if resp.status_code == 200 else []
+    if rows:
+        df = pd.DataFrame(rows)
+        df["metric_date"] = pd.to_datetime(df["metric_date"])
+        st.line_chart(df.set_index("metric_date")[["ctl", "atl", "tsb"]])
+    else:
+        st.info("Sem dados de carga ainda. Importe treinos na aba Importar.")
+
+
+def import_tab(token: str) -> None:
+    st.subheader("Importar arquivos (CSV TrainingPeaks, FIT, TCX, GPX)")
+    files = st.file_uploader(
+        "Selecione arquivos", accept_multiple_files=True,
+        type=["csv", "fit", "tcx", "gpx"],
+    )
+    if files and st.button("Enviar"):
+        multipart = [("files", (f.name, f.getvalue())) for f in files]
+        resp = api("POST", "/imports/upload", token=token, files=multipart)
+        if resp.status_code == 200:
+            st.success("Importação concluída")
+            st.dataframe(pd.DataFrame(resp.json()))
+        else:
+            st.error(resp.text)
+
+
+def recommendations_tab(token: str) -> None:
+    st.subheader("Recomendação de treino")
+    question = st.text_input("Pergunta (opcional)", "Qual treino devo fazer hoje?")
+    if st.button("Gerar recomendação"):
+        resp = api("POST", "/recommendations", token=token, json={"question": question})
+        if resp.status_code == 201:
+            st.session_state["last_rec"] = resp.json()
+        else:
+            st.error(resp.text)
+
+    rec = st.session_state.get("last_rec")
+    if rec:
+        risk = rec["risk_level"]
+        color = {"LOW": "🟢", "MODERATE": "🟡", "HIGH": "🔴"}.get(risk, "⚪")
+        st.markdown(f"### {color} Risco: {risk}  ·  Confiança: {rec.get('confidence')}")
+        st.write(rec["summary"])
+        with st.expander("Justificativa, evidências e ajustes"):
+            st.write("**Objetivo fisiológico:**", rec.get("physiological_objective"))
+            st.write("**Relação com o bloco:**", rec.get("block_relation"))
+            st.write("**Racional:**", rec.get("rationale"))
+            st.write("**Se mais cansado:**", rec.get("adjust_if_tired"))
+            st.write("**Se menos tempo:**", rec.get("adjust_if_less_time"))
+            st.write("**Evidências (histórico real):**")
+            for e in rec.get("evidence", []):
+                st.write(f"- {e['description']}")
+
+        payload = rec.get("payload") or {}
+        desc = payload.get("workout_description")
+        if desc:
+            st.markdown("#### 🏋️ Treino estruturado")
+            st.code(desc, language=None)
+
+        has_structured = bool(payload.get("structured_workout"))
+        if has_structured:
+            st.markdown("**Baixar treino:**")
+            col_zwo, col_fit = st.columns(2)
+            for col, ext, hint in (
+                (col_zwo, "zwo", "TrainingPeaks"),
+                (col_fit, "fit", "device via USB"),
+            ):
+                resp = api("GET", f"/recommendations/{rec['id']}/export.{ext}", token=token)
+                if resp.status_code == 200:
+                    col.download_button(
+                        f"⬇️ .{ext} ({hint})",
+                        data=resp.content,
+                        file_name=f"treino_{rec['id'][:8]}.{ext}",
+                        mime="application/octet-stream",
+                        key=f"rec_export_{ext}",
+                    )
+
+        st.divider()
+        st.markdown("#### Seu feedback após executar")
+        rating = st.slider("Nota", 1, 5, 4)
+        made_sense = st.checkbox("Fez sentido para mim", value=True)
+        comment = st.text_area("Comentário")
+        if st.button("Enviar feedback"):
+            fb = api(
+                "POST", f"/feedback/{rec['id']}", token=token,
+                json={"rating": rating, "made_sense": made_sense, "comment": comment},
+            )
+            st.success("Feedback registrado. Obrigado!") if fb.status_code == 201 else st.error(fb.text)
+
+
+def dashboard(token: str) -> None:
+    me = api("GET", "/athletes/me", token=token).json()
+    st.sidebar.success(f"Conectado: {me.get('full_name', '')}")
+    if st.sidebar.button("Sair"):
+        st.session_state.pop("token", None)
+        st.rerun()
+
+    _sample_workouts_sidebar(token)
+
     tab_load, tab_import, tab_rec = st.tabs(
         ["📈 Forma & Carga", "📥 Importar", "🧠 Recomendações"]
     )
-
     with tab_load:
-        st.subheader("CTL (fitness) · ATL (fadiga) · TSB (forma)")
-        if st.button("Recalcular métricas"):
-            api("POST", "/metrics/load/recompute", token=token)
-        resp = api("GET", "/metrics/load", token=token)
-        rows = resp.json() if resp.status_code == 200 else []
-        if rows:
-            df = pd.DataFrame(rows)
-            df["metric_date"] = pd.to_datetime(df["metric_date"])
-            st.line_chart(df.set_index("metric_date")[["ctl", "atl", "tsb"]])
-        else:
-            st.info("Sem dados de carga ainda. Importe treinos na aba Importar.")
-
+        load_tab(token)
     with tab_import:
-        st.subheader("Importar arquivos (CSV TrainingPeaks, FIT, TCX, GPX)")
-        files = st.file_uploader(
-            "Selecione arquivos", accept_multiple_files=True,
-            type=["csv", "fit", "tcx", "gpx"],
-        )
-        if files and st.button("Enviar"):
-            multipart = [("files", (f.name, f.getvalue())) for f in files]
-            resp = api("POST", "/imports/upload", token=token, files=multipart)
-            if resp.status_code == 200:
-                st.success("Importação concluída")
-                st.dataframe(pd.DataFrame(resp.json()))
-            else:
-                st.error(resp.text)
-
+        import_tab(token)
     with tab_rec:
-        st.subheader("Recomendação de treino")
-        question = st.text_input("Pergunta (opcional)", "Qual treino devo fazer hoje?")
-        if st.button("Gerar recomendação"):
-            resp = api("POST", "/recommendations", token=token, json={"question": question})
-            if resp.status_code == 201:
-                st.session_state["last_rec"] = resp.json()
-            else:
-                st.error(resp.text)
-
-        rec = st.session_state.get("last_rec")
-        if rec:
-            risk = rec["risk_level"]
-            color = {"LOW": "🟢", "MODERATE": "🟡", "HIGH": "🔴"}.get(risk, "⚪")
-            st.markdown(f"### {color} Risco: {risk}  ·  Confiança: {rec.get('confidence')}")
-            st.write(rec["summary"])
-            with st.expander("Justificativa, evidências e ajustes"):
-                st.write("**Objetivo fisiológico:**", rec.get("physiological_objective"))
-                st.write("**Relação com o bloco:**", rec.get("block_relation"))
-                st.write("**Racional:**", rec.get("rationale"))
-                st.write("**Se mais cansado:**", rec.get("adjust_if_tired"))
-                st.write("**Se menos tempo:**", rec.get("adjust_if_less_time"))
-                st.write("**Evidências (histórico real):**")
-                for e in rec.get("evidence", []):
-                    st.write(f"- {e['description']}")
-
-            payload = rec.get("payload") or {}
-            desc = payload.get("workout_description")
-            if desc:
-                st.markdown("#### 🏋️ Treino estruturado")
-                st.code(desc, language=None)
-
-            has_structured = bool(payload.get("structured_workout"))
-            if has_structured:
-                st.markdown("**Baixar treino:**")
-                col_zwo, col_fit = st.columns(2)
-                for col, ext, hint in (
-                    (col_zwo, "zwo", "TrainingPeaks"),
-                    (col_fit, "fit", "device via USB"),
-                ):
-                    resp = api("GET", f"/recommendations/{rec['id']}/export.{ext}", token=token)
-                    if resp.status_code == 200:
-                        col.download_button(
-                            f"⬇️ .{ext} ({hint})",
-                            data=resp.content,
-                            file_name=f"treino_{rec['id'][:8]}.{ext}",
-                            mime="application/octet-stream",
-                            key=f"rec_export_{ext}",
-                        )
-
-            st.divider()
-            st.markdown("#### Seu feedback após executar")
-            rating = st.slider("Nota", 1, 5, 4)
-            made_sense = st.checkbox("Fez sentido para mim", value=True)
-            comment = st.text_area("Comentário")
-            if st.button("Enviar feedback"):
-                fb = api(
-                    "POST", f"/feedback/{rec['id']}", token=token,
-                    json={"rating": rating, "made_sense": made_sense, "comment": comment},
-                )
-                st.success("Feedback registrado. Obrigado!") if fb.status_code == 201 else st.error(fb.text)
+        recommendations_tab(token)
 
 
 def main() -> None:
