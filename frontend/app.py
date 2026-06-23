@@ -363,7 +363,13 @@ def main() -> None:
     if not token:
         login_view()
         return
-    me = api("GET", "/athletes/me", token=token).json()
+    resp = api("GET", "/athletes/me", token=token)
+    if resp.status_code != 200:
+        # Expired/invalid token — clear it and fall back to login.
+        st.session_state.pop("token", None)
+        login_view()
+        return
+    me = resp.json()
     if me.get("role") == "ADMIN":
         admin_dashboard(token)
     else:
