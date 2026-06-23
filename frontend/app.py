@@ -47,8 +47,11 @@ def dashboard(token: str) -> None:
         st.session_state.pop("token", None)
         st.rerun()
 
-    with st.sidebar.expander("🧪 Treinos de teste (.fit)"):
-        st.caption("Baixe um treino estruturado de exemplo para testar a importação no device.")
+    with st.sidebar.expander("🧪 Treinos de teste"):
+        st.caption(
+            "Baixe um treino estruturado de exemplo. **.zwo** para importar no "
+            "TrainingPeaks (Workout Library); **.fit** para o device via USB."
+        )
         ftp = st.number_input("FTP (W)", min_value=80, max_value=600, value=250, step=5)
         samples = [
             ("Sweet Spot 3×12", "sweet_spot"),
@@ -57,16 +60,19 @@ def dashboard(token: str) -> None:
             ("Recuperação Z1", "recovery"),
         ]
         for label, template in samples:
-            resp = api("GET", "/recommendations/sample.fit", token=token,
-                       params={"template": template, "ftp": ftp})
-            if resp.status_code == 200:
-                st.download_button(
-                    f"⬇️ {label}",
-                    data=resp.content,
-                    file_name=f"{template}_ftp{int(ftp)}.fit",
-                    mime="application/octet-stream",
-                    key=f"sample_{template}",
-                )
+            st.markdown(f"**{label}**")
+            c1, c2 = st.columns(2)
+            for col, ext in ((c1, "zwo"), (c2, "fit")):
+                resp = api("GET", f"/recommendations/sample.{ext}", token=token,
+                           params={"template": template, "ftp": ftp})
+                if resp.status_code == 200:
+                    col.download_button(
+                        f"⬇️ .{ext}",
+                        data=resp.content,
+                        file_name=f"{template}_ftp{int(ftp)}.{ext}",
+                        mime="application/octet-stream",
+                        key=f"sample_{template}_{ext}",
+                    )
 
     tab_load, tab_import, tab_rec = st.tabs(
         ["📈 Forma & Carga", "📥 Importar", "🧠 Recomendações"]
@@ -128,14 +134,21 @@ def dashboard(token: str) -> None:
 
             has_structured = bool((rec.get("payload") or {}).get("structured_workout"))
             if has_structured:
-                fit_resp = api("GET", f"/recommendations/{rec['id']}/export.fit", token=token)
-                if fit_resp.status_code == 200:
-                    st.download_button(
-                        "⬇️ Baixar treino (.fit)",
-                        data=fit_resp.content,
-                        file_name=f"treino_{rec['id'][:8]}.fit",
-                        mime="application/octet-stream",
-                    )
+                st.markdown("**Baixar treino:**")
+                col_zwo, col_fit = st.columns(2)
+                for col, ext, hint in (
+                    (col_zwo, "zwo", "TrainingPeaks"),
+                    (col_fit, "fit", "device via USB"),
+                ):
+                    resp = api("GET", f"/recommendations/{rec['id']}/export.{ext}", token=token)
+                    if resp.status_code == 200:
+                        col.download_button(
+                            f"⬇️ .{ext} ({hint})",
+                            data=resp.content,
+                            file_name=f"treino_{rec['id'][:8]}.{ext}",
+                            mime="application/octet-stream",
+                            key=f"rec_export_{ext}",
+                        )
 
             st.divider()
             st.markdown("#### Seu feedback após executar")

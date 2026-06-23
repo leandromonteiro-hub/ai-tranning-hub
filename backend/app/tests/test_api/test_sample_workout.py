@@ -80,3 +80,23 @@ async def test_sample_fit_unknown_template_is_400(client):
 async def test_sample_fit_requires_auth(client):
     r = await client.get("/api/v1/recommendations/sample.fit?template=sweet_spot")
     assert r.status_code == 401
+
+
+async def test_sample_zwo_returns_valid_zwift_xml(client):
+    import xml.etree.ElementTree as ET
+    h = {"Authorization": f"Bearer {await _token(client)}"}
+    r = await client.get("/api/v1/recommendations/sample.zwo?template=sweet_spot", headers=h)
+    assert r.status_code == 200, r.text
+    assert "attachment" in r.headers["content-disposition"]
+    assert r.headers["content-disposition"].endswith('.zwo"')
+    root = ET.fromstring(r.content)
+    assert root.tag == "workout_file"
+    assert root.findtext("sportType") == "bike"
+    # native interval grouping, not flattened
+    assert len(root.find("workout").findall("IntervalsT")) == 1
+
+
+async def test_sample_zwo_unknown_template_is_400(client):
+    h = {"Authorization": f"Bearer {await _token(client)}"}
+    r = await client.get("/api/v1/recommendations/sample.zwo?template=nope", headers=h)
+    assert r.status_code == 400
