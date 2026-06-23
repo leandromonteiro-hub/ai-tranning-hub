@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_tenant
@@ -13,6 +13,8 @@ from app.models.ai import AiDecision
 from app.repositories.ai_repo import DecisionRepository, RecommendationRepository
 from app.schemas.ai import DecisionRequest, RecommendationRead, RecommendationRequest
 from app.services.ai.recommender import generate_recommendation
+from app.services.workout.fit_encoder import encode as encode_fit
+from app.services.workout.model import StructuredWorkout
 
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
 
@@ -57,6 +59,28 @@ async def get_recommendation(
         raise HTTPException(status_code=404, detail="Recommendation not found")
     await db.refresh(rec, attribute_names=["evidence"])
     return RecommendationRead.model_validate(rec)
+
+
+@router.get("/{rec_id}/export.fit")
+async def export_recommendation_fit(
+    rec_id: uuid.UUID,
+    ctx: TenantContext = Depends(get_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    """Download the recommendation's structured workout as a Garmin FIT file."""
+    repo = RecommendationRepository(db, ctx)
+    rec = await repo.get(rec_id)
+    sw_data = (rec.payload or {}).get("structured_workout") if rec else None
+    if not sw_data:
+        raise HTTPException(status_code=404, detail="No structured workout for this recommendation")
+    workout = StructuredWorkout.model_validate(sw_data)
+    data = encode_fit(workout)
+    slug = "".join(c if c.isalnum() else "_" for c in workout.name).strip("_") or "workout"
+    return Response(
+        content=data,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{slug}.fit"'},
+    )
 
 
 @router.post("/{rec_id}/decision", response_model=RecommendationRead)
