@@ -22,13 +22,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logging import get_logger
 from app.core.tenant import TenantContext
 from app.models.ai import AiRecommendation, LlmCallLog
-from app.models.enums import RecommendationDecision, RiskLevel
+from app.models.enums import BlockType, RecommendationDecision, RiskLevel
 from app.repositories.ai_repo import RecommendationRepository
+from app.repositories.metrics_repo import FtpRepository
+from app.repositories.plan_repo import TrainingWeekRepository
 from app.services.ai import evidence_builder, prompt_store, prompts, rag
 from app.services.ai.digital_twin import build_twin
 from app.services.ai.llm_client import LlmClient
 from app.services.ai.safety_validator import evaluate_safety
 from app.services.knowledge.embedder import embed_text
+from app.services.workout.builder import build_for
 
 log = get_logger(__name__)
 
@@ -51,6 +54,18 @@ async def generate_recommendation(
     # 2. Guardrails BEFORE any LLM call
     safety = evaluate_safety(twin.snapshot)
     log.info("guardrails_evaluated", extra=safety.as_dict())
+
+    # Structured workout (deterministic, inherits the guardrail risk posture).
+    ftp_watts = await FtpRepository(session, ctx).value_on(target_date, athlete_id)
+    structured_workout = None
+    if ftp_watts:
+        block = (
+            await TrainingWeekRepository(session, ctx).block_on(target_date, athlete_id)
+            or BlockType.BASE
+        )
+        structured_workout = build_for(
+            block, safety.risk_level, ftp_watts
+        ).model_dump(mode="json")
 
     # 3. Evidence + knowledge context
     evidence_items = await evidence_builder.collect_evidence(
@@ -115,7 +130,11 @@ async def generate_recommendation(
         "endurance or take full rest; never push intensity on a high-fatigue day.",
         adjust_if_less_time="If less time is available, keep the primary intensity "
         "interval(s) and trim warm-up/cool-down and endurance volume.",
-        payload={"llm_text": llm.text, "template_version": template_version},
+        payload={
+            "llm_text": llm.text,
+            "template_version": template_version,
+            "structured_workout": structured_workout,
+        },
         risk_level=safety.risk_level,
         risk_flags=safety.as_dict(),
         confidence=confidence,
