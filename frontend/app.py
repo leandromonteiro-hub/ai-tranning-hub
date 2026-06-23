@@ -8,6 +8,7 @@ ships a working feedback loop in one Python codebase with near-zero overhead.
 from __future__ import annotations
 
 import os
+from datetime import date, timedelta
 
 import httpx
 import pandas as pd
@@ -208,6 +209,76 @@ def races_tab(token: str) -> None:
         st.info("Nenhuma prova cadastrada ainda. Cadastre acima.")
 
 
+def _fmt_race_label(r: dict) -> str:
+    return f"{r['race_date']} — {r['name']} (P{r.get('priority', '?')})"
+
+
+def _latest_plan(token: str) -> dict | None:
+    resp = api("GET", "/plans", token=token)
+    plans = resp.json() if resp.status_code == 200 else []
+    return max(plans, key=lambda p: p["start_date"]) if plans else None
+
+
+def _current_phase(plan: dict) -> dict | None:
+    """The plan week whose [week_start, week_start+7d) contains today, or None."""
+    today = date.today()
+    for w in plan.get("weeks", []):
+        start = date.fromisoformat(w["week_start"])
+        if start <= today < start + timedelta(days=7):
+            return w
+    return None
+
+
+def plan_tab(token: str) -> None:
+    st.subheader("Plano de treino periodizado")
+    races = api("GET", "/races", token=token).json() or []
+    if races:
+        labels = {_fmt_race_label(r): r for r in races}
+        choice = st.selectbox("Prova-alvo", list(labels.keys()))
+        priority = st.selectbox("Prioridade do plano", ["A", "B", "C"], index=0, key="plan_prio")
+        if st.button("Gerar plano"):
+            race = labels[choice]
+            body = {
+                "name": f"Plano — {race['name']}",
+                "race_date": race["race_date"],
+                "target_race_id": race["id"],
+                "priority": priority,
+            }
+            resp = api("POST", "/plans/generate", token=token, json=body)
+            if resp.status_code == 201:
+                st.success("Plano gerado.")
+                st.rerun()
+            else:
+                st.error(resp.text)
+    else:
+        st.info("Cadastre uma prova na aba Provas para gerar um plano.")
+
+    plan = _latest_plan(token)
+    if not plan:
+        st.info("Nenhum plano ainda. Gere um acima.")
+        return
+
+    st.markdown(
+        f"**{plan['name']}** · {plan['total_weeks']} semanas · "
+        f"CTL inicial: {plan.get('start_ctl')}"
+    )
+    weeks = sorted(plan.get("weeks", []), key=lambda w: w["week_index"])
+    if weeks:
+        df = pd.DataFrame([
+            {"Semana": w["week_index"], "Início": w["week_start"], "Bloco": w["block_type"],
+             "TSS planejado": w["planned_tss"], "Foco": w.get("focus") or "",
+             "Deload": "🛌" if w.get("is_recovery_week") else ""}
+            for w in weeks
+        ])
+        st.bar_chart(df.set_index("Início")[["TSS planejado"]])
+        st.dataframe(df, hide_index=True, use_container_width=True)
+    blocks = sorted(plan.get("blocks", []), key=lambda b: b["order_index"])
+    if blocks:
+        st.markdown("**Blocos:**")
+        for b in blocks:
+            st.write(f"- **{b['block_type']}**: {b['start_date']} → {b['end_date']} — {b.get('focus') or ''}")
+
+
 def dashboard(token: str) -> None:
     me = api("GET", "/athletes/me", token=token).json()
     st.sidebar.success(f"Conectado: {me.get('full_name', '')}")
@@ -217,8 +288,8 @@ def dashboard(token: str) -> None:
 
     _sample_workouts_sidebar(token)
 
-    tab_load, tab_import, tab_races, tab_rec = st.tabs(
-        ["📈 Forma & Carga", "📥 Importar", "🏁 Provas", "🧠 Recomendações"]
+    tab_load, tab_import, tab_races, tab_plan, tab_rec = st.tabs(
+        ["📈 Forma & Carga", "📥 Importar", "🏁 Provas", "📅 Plano", "🧠 Recomendações"]
     )
     with tab_load:
         load_tab(token)
@@ -226,6 +297,8 @@ def dashboard(token: str) -> None:
         import_tab(token)
     with tab_races:
         races_tab(token)
+    with tab_plan:
+        plan_tab(token)
     with tab_rec:
         recommendations_tab(token)
 
