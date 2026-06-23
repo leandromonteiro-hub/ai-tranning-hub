@@ -102,6 +102,12 @@ def import_tab(token: str) -> None:
 
 def recommendations_tab(token: str) -> None:
     st.subheader("Recomendação de treino")
+    _plan = _latest_plan(token)
+    _phase = _current_phase(_plan) if _plan else None
+    if _phase:
+        st.info(f"Hoje: fase **{_phase['block_type']}** · semana {_phase['week_index']}/{_plan['total_weeks']}")
+    else:
+        st.caption("Sem plano ativo cobrindo hoje — a recomendação usará o bloco padrão (BASE).")
     question = st.text_input("Pergunta (opcional)", "Qual treino devo fazer hoje?")
     if st.button("Gerar recomendação"):
         resp = api("POST", "/recommendations", token=token, json={"question": question})
