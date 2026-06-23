@@ -11,13 +11,35 @@ from app.api.deps import get_tenant
 from app.core.database import get_db
 from app.core.tenant import TenantContext
 from app.models.ai import AiDecision
+from app.models.enums import BlockType, RiskLevel
 from app.repositories.ai_repo import DecisionRepository, RecommendationRepository
 from app.schemas.ai import DecisionRequest, RecommendationRead, RecommendationRequest
 from app.services.ai.recommender import generate_recommendation
+from app.services.workout.builder import build_for
 from app.services.workout.fit_encoder import encode as encode_fit
 from app.services.workout.model import StructuredWorkout
 
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
+
+# Named sample workouts for device-import testing (template -> block, risk).
+_SAMPLE_TEMPLATES: dict[str, tuple[BlockType, RiskLevel]] = {
+    "sweet_spot": (BlockType.BUILD, RiskLevel.LOW),
+    "vo2max": (BlockType.PEAK, RiskLevel.LOW),
+    "endurance": (BlockType.BASE, RiskLevel.LOW),
+    "recovery": (BlockType.BASE, RiskLevel.HIGH),  # HIGH forces the recovery template
+}
+
+
+def _fit_response(workout: StructuredWorkout) -> Response:
+    """Encode a structured workout to a downloadable .fit attachment response."""
+    data = encode_fit(workout)
+    ascii_name = unicodedata.normalize("NFKD", workout.name).encode("ascii", "ignore").decode("ascii")
+    slug = "".join(c if c.isalnum() else "_" for c in ascii_name).strip("_") or "workout"
+    return Response(
+        content=data,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{slug}.fit"'},
+    )
 
 
 @router.post("", response_model=RecommendationRead, status_code=201)
@@ -48,6 +70,28 @@ async def list_recommendations(
     return out
 
 
+@router.get("/sample.fit")
+async def sample_workout_fit(
+    template: str = "sweet_spot",
+    ftp: float = 250.0,
+    ctx: TenantContext = Depends(get_tenant),
+):
+    """Download a sample structured workout as a Garmin FIT file (for device-import testing).
+
+    ``template`` is one of: sweet_spot, vo2max, endurance, recovery. ``ftp`` (watts)
+    scales the power targets. Requires authentication but reads no athlete data.
+    """
+    if template not in _SAMPLE_TEMPLATES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown template; choose one of {sorted(_SAMPLE_TEMPLATES)}",
+        )
+    if ftp <= 0:
+        raise HTTPException(status_code=400, detail="ftp must be positive")
+    block, risk = _SAMPLE_TEMPLATES[template]
+    return _fit_response(build_for(block, risk, ftp))
+
+
 @router.get("/{rec_id}", response_model=RecommendationRead)
 async def get_recommendation(
     rec_id: uuid.UUID,
@@ -75,14 +119,7 @@ async def export_recommendation_fit(
     if not sw_data:
         raise HTTPException(status_code=404, detail="No structured workout for this recommendation")
     workout = StructuredWorkout.model_validate(sw_data)
-    data = encode_fit(workout)
-    ascii_name = unicodedata.normalize("NFKD", workout.name).encode("ascii", "ignore").decode("ascii")
-    slug = "".join(c if c.isalnum() else "_" for c in ascii_name).strip("_") or "workout"
-    return Response(
-        content=data,
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{slug}.fit"'},
-    )
+    return _fit_response(workout)
 
 
 @router.post("/{rec_id}/decision", response_model=RecommendationRead)

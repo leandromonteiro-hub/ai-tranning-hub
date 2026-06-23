@@ -47,6 +47,27 @@ def dashboard(token: str) -> None:
         st.session_state.pop("token", None)
         st.rerun()
 
+    with st.sidebar.expander("🧪 Treinos de teste (.fit)"):
+        st.caption("Baixe um treino estruturado de exemplo para testar a importação no device.")
+        ftp = st.number_input("FTP (W)", min_value=80, max_value=600, value=250, step=5)
+        samples = [
+            ("Sweet Spot 3×12", "sweet_spot"),
+            ("VO2max 5×4", "vo2max"),
+            ("Endurance Z2", "endurance"),
+            ("Recuperação Z1", "recovery"),
+        ]
+        for label, template in samples:
+            resp = api("GET", "/recommendations/sample.fit", token=token,
+                       params={"template": template, "ftp": ftp})
+            if resp.status_code == 200:
+                st.download_button(
+                    f"⬇️ {label}",
+                    data=resp.content,
+                    file_name=f"{template}_ftp{int(ftp)}.fit",
+                    mime="application/octet-stream",
+                    key=f"sample_{template}",
+                )
+
     tab_load, tab_import, tab_rec = st.tabs(
         ["📈 Forma & Carga", "📥 Importar", "🧠 Recomendações"]
     )
