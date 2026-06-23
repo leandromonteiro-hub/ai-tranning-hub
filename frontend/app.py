@@ -100,8 +100,11 @@ def import_tab(token: str) -> None:
             st.error(resp.text)
 
 
-def recommendations_tab(token: str) -> None:
+def recommendations_tab(token: str, anamnese_ok: bool = True) -> None:
     st.subheader("Recomendação de treino")
+    if not anamnese_ok:
+        st.info("Complete sua anamnese (aba 🩺 Anamnese) para gerar recomendações.")
+        return
     _plan = _latest_plan(token)
     _phase = _current_phase(_plan) if _plan else None
     if _phase:
@@ -286,6 +289,60 @@ def plan_tab(token: str) -> None:
             st.write(f"- **{b['block_type']}**: {b['start_date']} → {b['end_date']} — {b.get('focus') or ''}")
 
 
+_ANAMNESE_REQUIRED = (
+    "birth_date", "sex", "weight_kg", "height_cm", "max_hr",
+    "primary_discipline", "years_training", "goals", "weekly_hours",
+)
+
+
+def _anamnese_complete(profile: dict | None) -> bool:
+    if not profile:
+        return False
+    return all(profile.get(f) not in (None, "") for f in _ANAMNESE_REQUIRED)
+
+
+def anamnese_tab(token: str) -> None:
+    st.subheader("🩺 Anamnese")
+    st.caption("Preencha seu perfil — obrigatório para gerar recomendações personalizadas.")
+    p = api("GET", "/athletes/me/profile", token=token)
+    cur = (p.json() or {}) if p.status_code == 200 else {}
+    sexes = ["M", "F", "Outro"]
+    with st.form("anamnese"):
+        birth = st.date_input(
+            "Data de nascimento",
+            value=date.fromisoformat(cur["birth_date"]) if cur.get("birth_date") else date(1990, 1, 1),
+        )
+        sex = st.selectbox("Sexo", sexes, index=sexes.index(cur["sex"]) if cur.get("sex") in sexes else 0)
+        weight = st.number_input("Peso (kg)", 30.0, 200.0, float(cur.get("weight_kg") or 70.0), step=0.5)
+        height = st.number_input("Altura (cm)", 120.0, 230.0, float(cur.get("height_cm") or 175.0), step=1.0)
+        max_hr = st.number_input("FC máxima", 120, 230, int(cur.get("max_hr") or 185))
+        resting_hr = st.number_input("FC repouso", 30, 120, int(cur.get("resting_hr") or 55))
+        discipline = st.text_input("Disciplina principal (ex.: XCO, Maratona)", cur.get("primary_discipline") or "")
+        years = st.number_input("Anos de treino", 0, 60, int(cur.get("years_training") or 1))
+        goals = st.text_area("Objetivos", cur.get("goals") or "")
+        weekly_hours = st.number_input("Disponibilidade (horas/semana)", 0.0, 40.0, float(cur.get("weekly_hours") or 6.0), step=0.5)
+        weekly_days = st.number_input("Dias disponíveis/semana", 0, 7, int(cur.get("weekly_days") or 4))
+        injury = st.text_area("Histórico de lesões/limitações", cur.get("injury_history") or "")
+        medical = st.text_area("Condições médicas/medicações", cur.get("medical_conditions") or "")
+        power = st.checkbox("Tenho medidor de potência", value=bool(cur.get("has_power_meter")))
+        hrmon = st.checkbox("Tenho monitor de FC", value=bool(cur.get("has_hr_monitor")))
+        if st.form_submit_button("Salvar anamnese"):
+            body = {
+                "birth_date": birth.isoformat(), "sex": sex, "weight_kg": weight, "height_cm": height,
+                "max_hr": int(max_hr), "resting_hr": int(resting_hr),
+                "primary_discipline": discipline or None, "years_training": int(years),
+                "goals": goals or None, "weekly_hours": weekly_hours, "weekly_days": int(weekly_days),
+                "injury_history": injury or None, "medical_conditions": medical or None,
+                "has_power_meter": power, "has_hr_monitor": hrmon,
+            }
+            r = api("PUT", "/athletes/me/profile", token=token, json=body)
+            if r.status_code == 200:
+                st.success("Anamnese salva.")
+                st.rerun()
+            else:
+                st.error(r.text)
+
+
 def dashboard(token: str) -> None:
     me = api("GET", "/athletes/me", token=token).json()
     st.sidebar.success(f"Conectado: {me.get('full_name', '')}")
@@ -295,9 +352,17 @@ def dashboard(token: str) -> None:
 
     _sample_workouts_sidebar(token)
 
-    tab_load, tab_import, tab_races, tab_plan, tab_rec = st.tabs(
-        ["📈 Forma & Carga", "📥 Importar", "🏁 Provas", "📅 Plano", "🧠 Recomendações"]
+    prof = api("GET", "/athletes/me/profile", token=token)
+    profile = (prof.json() or {}) if prof.status_code == 200 else {}
+    anamnese_ok = _anamnese_complete(profile)
+    if not anamnese_ok:
+        st.warning("Complete sua anamnese (aba 🩺 Anamnese) para liberar as recomendações.")
+
+    tab_anamnese, tab_load, tab_import, tab_races, tab_plan, tab_rec = st.tabs(
+        ["🩺 Anamnese", "📈 Forma & Carga", "📥 Importar", "🏁 Provas", "📅 Plano", "🧠 Recomendações"]
     )
+    with tab_anamnese:
+        anamnese_tab(token)
     with tab_load:
         load_tab(token)
     with tab_import:
@@ -307,7 +372,7 @@ def dashboard(token: str) -> None:
     with tab_plan:
         plan_tab(token)
     with tab_rec:
-        recommendations_tab(token)
+        recommendations_tab(token, anamnese_ok)
 
 
 def admin_dashboard(token: str) -> None:
