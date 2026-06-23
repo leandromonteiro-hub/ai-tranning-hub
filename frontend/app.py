@@ -162,6 +162,52 @@ def recommendations_tab(token: str) -> None:
             st.success("Feedback registrado. Obrigado!") if fb.status_code == 201 else st.error(fb.text)
 
 
+def races_tab(token: str) -> None:
+    st.subheader("Provas-alvo")
+    with st.form("nova_prova"):
+        name = st.text_input("Nome da prova")
+        race_date = st.date_input("Data da prova")
+        discipline = st.text_input("Disciplina (ex.: XCO, Maratona)", "")
+        priority = st.selectbox("Prioridade", ["A", "B", "C"], index=0)
+        with st.expander("Mais detalhes (opcional)"):
+            location = st.text_input("Local", "")
+            distance_km = st.number_input("Distância (km)", min_value=0.0, value=0.0, step=1.0)
+            elevation_gain_m = st.number_input("Ganho de elevação (m)", min_value=0.0, value=0.0, step=50.0)
+            notes = st.text_area("Notas", "")
+        if st.form_submit_button("Cadastrar prova"):
+            if not name:
+                st.error("Informe o nome da prova.")
+            else:
+                body = {
+                    "name": name,
+                    "race_date": race_date.isoformat(),
+                    "discipline": discipline or None,
+                    "priority": priority,
+                    "location": location or None,
+                    "distance_km": distance_km or None,
+                    "elevation_gain_m": elevation_gain_m or None,
+                    "notes": notes or None,
+                }
+                resp = api("POST", "/races", token=token, json=body)
+                if resp.status_code == 201:
+                    st.success("Prova cadastrada.")
+                    st.rerun()
+                else:
+                    st.error(resp.text)
+
+    resp = api("GET", "/races", token=token)
+    races = resp.json() if resp.status_code == 200 else []
+    if races:
+        df = pd.DataFrame([
+            {"Data": r["race_date"], "Prova": r["name"],
+             "Prioridade": r.get("priority"), "Disciplina": r.get("discipline") or "—"}
+            for r in races
+        ])
+        st.dataframe(df, hide_index=True, use_container_width=True)
+    else:
+        st.info("Nenhuma prova cadastrada ainda. Cadastre acima.")
+
+
 def dashboard(token: str) -> None:
     me = api("GET", "/athletes/me", token=token).json()
     st.sidebar.success(f"Conectado: {me.get('full_name', '')}")
@@ -171,13 +217,15 @@ def dashboard(token: str) -> None:
 
     _sample_workouts_sidebar(token)
 
-    tab_load, tab_import, tab_rec = st.tabs(
-        ["📈 Forma & Carga", "📥 Importar", "🧠 Recomendações"]
+    tab_load, tab_import, tab_races, tab_rec = st.tabs(
+        ["📈 Forma & Carga", "📥 Importar", "🏁 Provas", "🧠 Recomendações"]
     )
     with tab_load:
         load_tab(token)
     with tab_import:
         import_tab(token)
+    with tab_races:
+        races_tab(token)
     with tab_rec:
         recommendations_tab(token)
 
