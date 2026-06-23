@@ -16,8 +16,9 @@ from app.core.logging import get_logger
 log = get_logger(__name__)
 
 # Rough public per-1K-token prices (USD) for cost estimation only.
+# Public per-1K-token prices (USD): (input, output). Opus 4.8 = $5/$25 per 1M.
 _PRICE_TABLE = {
-    "claude-opus-4-8": (0.015, 0.075),
+    "claude-opus-4-8": (0.005, 0.025),
     "claude-sonnet-4-6": (0.003, 0.015),
     "gpt-4o": (0.005, 0.015),
     "mock": (0.0, 0.0),
@@ -107,9 +108,15 @@ class LlmClient:
         import anthropic  # imported lazily; optional dependency
 
         client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        # Adaptive thinking: let Claude reason about the safety/evidence context
+        # before committing to a recommendation. Thinking tokens count toward
+        # max_tokens, so give generous headroom; 8000 stays under the SDK's
+        # non-streaming timeout guard (~16k). We only read text blocks below, so
+        # thinking blocks are ignored in the returned string.
         msg = client.messages.create(
             model=self.model,
-            max_tokens=1500,
+            max_tokens=8000,
+            thinking={"type": "adaptive"},
             system=system or "",
             messages=[{"role": "user", "content": prompt}],
         )

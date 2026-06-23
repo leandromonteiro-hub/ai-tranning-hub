@@ -29,6 +29,7 @@ dependencies = [
     "python-json-logger>=3.2",
     "httpx>=0.28",
     "fit-tool>=0.9",
+    "anthropic>=0.40",
 ]
 
 [project.optional-dependencies]
