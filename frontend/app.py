@@ -289,6 +289,36 @@ def plan_tab(token: str) -> None:
             st.write(f"- **{b['block_type']}**: {b['start_date']} → {b['end_date']} — {b.get('focus') or ''}")
 
 
+def checkin_tab(token: str) -> None:
+    st.subheader("📝 Check-in diário")
+    st.caption("Como você está hoje? Isso ajusta a recomendação ao seu estado atual.")
+    with st.form("checkin"):
+        sleep_hours = st.number_input("Horas de sono", 0.0, 14.0, 7.0, step=0.5)
+        resting_hr = st.number_input("FC repouso hoje", 30, 120, 55)
+        hrv_ms = st.number_input("HRV (ms, opcional; 0 = não informar)", 0.0, 250.0, 0.0, step=1.0)
+        fatigue = st.slider("Fadiga (1 ótimo – 5 exausto)", 1, 5, 3)
+        soreness = st.slider("Dor muscular (1 – 5)", 1, 5, 2)
+        mood = st.slider("Humor (1 – 5)", 1, 5, 4)
+        motivation = st.slider("Motivação (1 – 5)", 1, 5, 4)
+        injury_flag = st.checkbox("Dor/lesão hoje")
+        comment = st.text_area("Comentário")
+        if st.form_submit_button("Registrar check-in"):
+            today = date.today().isoformat()
+            rec = api("POST", "/metrics/recovery", token=token, json={
+                "metric_date": today, "sleep_hours": sleep_hours,
+                "resting_hr": int(resting_hr), "hrv_ms": hrv_ms or None,
+            })
+            sub = api("POST", "/metrics/subjective", token=token, json={
+                "metric_date": today, "fatigue": fatigue, "soreness": soreness,
+                "mood": mood, "motivation": motivation, "injury_flag": injury_flag,
+                "comment": comment or None,
+            })
+            if rec.status_code == 201 and sub.status_code == 201:
+                st.success("Check-in registrado. A próxima recomendação considerará seu estado de hoje.")
+            else:
+                st.error(f"recovery={rec.status_code} subjective={sub.status_code}")
+
+
 _ANAMNESE_REQUIRED = (
     "birth_date", "sex", "weight_kg", "height_cm", "max_hr",
     "primary_discipline", "years_training", "goals", "weekly_hours",
@@ -358,8 +388,8 @@ def dashboard(token: str) -> None:
     if not anamnese_ok:
         st.warning("Complete sua anamnese (aba 🩺 Anamnese) para liberar as recomendações.")
 
-    tab_anamnese, tab_load, tab_import, tab_races, tab_plan, tab_rec = st.tabs(
-        ["🩺 Anamnese", "📈 Forma & Carga", "📥 Importar", "🏁 Provas", "📅 Plano", "🧠 Recomendações"]
+    tab_anamnese, tab_load, tab_import, tab_checkin, tab_races, tab_plan, tab_rec = st.tabs(
+        ["🩺 Anamnese", "📈 Forma & Carga", "📥 Importar", "📝 Check-in", "🏁 Provas", "📅 Plano", "🧠 Recomendações"]
     )
     with tab_anamnese:
         anamnese_tab(token)
@@ -367,6 +397,8 @@ def dashboard(token: str) -> None:
         load_tab(token)
     with tab_import:
         import_tab(token)
+    with tab_checkin:
+        checkin_tab(token)
     with tab_races:
         races_tab(token)
     with tab_plan:
