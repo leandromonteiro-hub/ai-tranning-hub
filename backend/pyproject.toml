@@ -30,6 +30,7 @@ dependencies = [
     "httpx>=0.28",
     "fit-tool>=0.9",
     "anthropic>=0.40",
+    "fastembed>=0.4",
 ]
 
 [project.optional-dependencies]

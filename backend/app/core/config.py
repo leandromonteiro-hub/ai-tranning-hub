@@ -45,8 +45,12 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     embedding_provider: Literal["mock", "openai", "local"] = "mock"
-    embedding_model: str = "text-embedding-3-small"
-    embedding_dim: int = 1536
+    # Local (fastembed/ONNX) multilingual model, 384 dims. mock also uses this dim
+    # so the pgvector column stays consistent across providers. openai's
+    # text-embedding-3-small is 1536 — switching to it requires EMBEDDING_DIM=1536
+    # and a matching column migration.
+    embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    embedding_dim: int = 384
 
     # Bootstrap admin
     bootstrap_admin_email: str = "admin@athletehub.example.com"
