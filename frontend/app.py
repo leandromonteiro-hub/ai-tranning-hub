@@ -237,7 +237,8 @@ def _current_phase(plan: dict) -> dict | None:
 
 def plan_tab(token: str) -> None:
     st.subheader("Plano de treino periodizado")
-    races = api("GET", "/races", token=token).json() or []
+    resp = api("GET", "/races", token=token)
+    races = resp.json() if resp.status_code == 200 else []
     if races:
         labels = {_fmt_race_label(r): r for r in races}
         choice = st.selectbox("Prova-alvo", list(labels.keys()))
