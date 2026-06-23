@@ -60,6 +60,7 @@ class FeedbackRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     recommendation_id: uuid.UUID
+    athlete_id: uuid.UUID
     rating: int
     made_sense: bool | None = None
     observed_result: str | None = None
