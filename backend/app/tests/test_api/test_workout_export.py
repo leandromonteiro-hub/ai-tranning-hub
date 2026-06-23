@@ -78,3 +78,12 @@ async def test_export_fit_returns_file_for_owner_and_isolates_others(client_with
 
     cross = await client_with_ftp.get(f"/api/v1/recommendations/{rec_id}/export.fit", headers=hb)
     assert cross.status_code == 404
+
+
+async def test_export_fit_404_when_recommendation_has_no_structured_workout(client_with_ftp):
+    hb = {"Authorization": f"Bearer {await _login(client_with_ftp, 'b@example.com')}"}
+    rec = await client_with_ftp.post("/api/v1/recommendations", headers=hb, json={"kind": "daily_workout"})
+    assert rec.status_code == 201, rec.text
+    rec_id = rec.json()["id"]
+    resp = await client_with_ftp.get(f"/api/v1/recommendations/{rec_id}/export.fit", headers=hb)
+    assert resp.status_code == 404

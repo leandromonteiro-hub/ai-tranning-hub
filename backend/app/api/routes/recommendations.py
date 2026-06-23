@@ -1,6 +1,7 @@
 """Recommendation generation, retrieval and athlete decision logging."""
 from __future__ import annotations
 
+import unicodedata
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -75,7 +76,8 @@ async def export_recommendation_fit(
         raise HTTPException(status_code=404, detail="No structured workout for this recommendation")
     workout = StructuredWorkout.model_validate(sw_data)
     data = encode_fit(workout)
-    slug = "".join(c if c.isalnum() else "_" for c in workout.name).strip("_") or "workout"
+    ascii_name = unicodedata.normalize("NFKD", workout.name).encode("ascii", "ignore").decode("ascii")
+    slug = "".join(c if c.isalnum() else "_" for c in ascii_name).strip("_") or "workout"
     return Response(
         content=data,
         media_type="application/octet-stream",
