@@ -1,0 +1,9 @@
+# Normalize line endings: the backend/frontend run in Linux containers.
+* text=auto eol=lf
+
+# Binary / activity files should never be normalized.
+*.fit binary
+*.tcx binary
+*.gpx binary
+*.png binary
+*.jpg binary

@@ -1,0 +1,60 @@
+[project]
+name = "athlete-ai-training-hub"
+version = "0.1.0"
+description = "AI-driven cycling/MTB endurance training management system"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "psycopg[binary]>=3.2",
+    "alembic>=1.14",
+    "pydantic[email]>=2.10",
+    "pydantic-settings>=2.6",
+    "email-validator>=2.2",
+    "python-jose[cryptography]>=3.3",
+    "passlib>=1.7",
+    # passlib 1.7.x reads bcrypt.__about__, removed in bcrypt>=4.1; pin to 4.0.x.
+    "bcrypt>=4.0,<4.1",
+    "python-multipart>=0.0.12",
+    "pgvector>=0.3.6",
+    "celery>=5.4",
+    "redis>=5.2",
+    "fitparse>=1.2",
+    "gpxpy>=1.6",
+    "lxml>=5.3",
+    "pandas>=2.2",
+    "polars>=1.17",
+    "python-json-logger>=3.2",
+    "httpx>=0.28",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "aiosqlite>=0.20",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["app/tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/tests/*", "app/scripts/*"]

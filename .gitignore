@@ -1,0 +1,27 @@
+# Environment / secrets
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+
+# Data / uploads
+*.fit
+*.tcx
+*.gpx
+/data/
+/uploads/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
