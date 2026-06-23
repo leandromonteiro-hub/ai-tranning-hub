@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from xml.sax.saxutils import escape
 
+from app.services.workout import analysis
 from app.services.workout.model import Repeat, Step, StructuredWorkout, Target
 
 
@@ -52,6 +53,8 @@ def encode_zwo(workout: StructuredWorkout) -> str:
         "<workout_file>",
         "  <author>Athlete AI Training Hub</author>",
         f"  <name>{escape(workout.name)}</name>",
+        # The breakdown (rest times, total duration, IF, TSS) shows in TrainingPeaks.
+        f"  <description>{escape(analysis.describe(workout))}</description>",
         "  <sportType>bike</sportType>",
         "  <workout>",
     ]

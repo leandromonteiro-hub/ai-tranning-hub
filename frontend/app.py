@@ -132,7 +132,13 @@ def dashboard(token: str) -> None:
                 for e in rec.get("evidence", []):
                     st.write(f"- {e['description']}")
 
-            has_structured = bool((rec.get("payload") or {}).get("structured_workout"))
+            payload = rec.get("payload") or {}
+            desc = payload.get("workout_description")
+            if desc:
+                st.markdown("#### 🏋️ Treino estruturado")
+                st.code(desc, language=None)
+
+            has_structured = bool(payload.get("structured_workout"))
             if has_structured:
                 st.markdown("**Baixar treino:**")
                 col_zwo, col_fit = st.columns(2)

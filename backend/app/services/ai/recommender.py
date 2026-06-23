@@ -31,6 +31,7 @@ from app.services.ai.digital_twin import build_twin
 from app.services.ai.llm_client import LlmClient
 from app.services.ai.safety_validator import evaluate_safety
 from app.services.knowledge.embedder import embed_text
+from app.services.workout import analysis as workout_analysis
 from app.services.workout.builder import build_for
 
 log = get_logger(__name__)
@@ -58,14 +59,16 @@ async def generate_recommendation(
     # Structured workout (deterministic, inherits the guardrail risk posture).
     ftp_watts = await FtpRepository(session, ctx).value_on(target_date, athlete_id)
     structured_workout = None
+    workout_description = None
     if ftp_watts:
         block = (
             await TrainingWeekRepository(session, ctx).block_on(target_date, athlete_id)
             or BlockType.BASE
         )
-        structured_workout = build_for(
-            block, safety.risk_level, ftp_watts
-        ).model_dump(mode="json")
+        workout = build_for(block, safety.risk_level, ftp_watts)
+        structured_workout = workout.model_dump(mode="json")
+        # Deterministic breakdown (total time, rest times, IF, TSS) for the athlete.
+        workout_description = workout_analysis.describe(workout)
 
     # 3. Evidence + knowledge context
     evidence_items = await evidence_builder.collect_evidence(
@@ -134,6 +137,7 @@ async def generate_recommendation(
             "llm_text": llm.text,
             "template_version": template_version,
             "structured_workout": structured_workout,
+            "workout_description": workout_description,
         },
         risk_level=safety.risk_level,
         risk_flags=safety.as_dict(),

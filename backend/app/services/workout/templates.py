@@ -16,8 +16,10 @@ def _pwr(low: float, high: float) -> Target:
     return Target(type="power_pct_ftp", low=low, high=high)
 
 
-def _open() -> Target:
-    return Target(type="open")
+def _cooldown_target() -> Target:
+    # A real (gentle ramp-down) target so the cooldown counts toward the planned
+    # total duration in TrainingPeaks/.fit (an "open"/FreeRide cooldown is not counted).
+    return _pwr(0.40, 0.50)
 
 
 def recovery(ftp_watts: float) -> StructuredWorkout:
@@ -33,7 +35,7 @@ def endurance(ftp_watts: float) -> StructuredWorkout:
         elements=[
             Step(intensity="warmup", duration_s=600, target=_pwr(0.55, 0.60)),
             Step(intensity="active", duration_s=3600, target=_pwr(0.62, 0.68)),
-            Step(intensity="cooldown", duration_s=600, target=_open()),
+            Step(intensity="cooldown", duration_s=600, target=_cooldown_target()),
         ],
     )
 
@@ -47,7 +49,7 @@ def sweet_spot(ftp_watts: float) -> StructuredWorkout:
                 Step(intensity="active", duration_s=720, target=_pwr(0.88, 0.93)),
                 Step(intensity="rest", duration_s=300, target=_pwr(0.50, 0.55)),
             ]),
-            Step(intensity="cooldown", duration_s=600, target=_open()),
+            Step(intensity="cooldown", duration_s=600, target=_cooldown_target()),
         ],
     )
 
@@ -61,7 +63,7 @@ def vo2max(ftp_watts: float) -> StructuredWorkout:
                 Step(intensity="active", duration_s=240, target=_pwr(1.10, 1.18)),
                 Step(intensity="rest", duration_s=240, target=_pwr(0.45, 0.50)),
             ]),
-            Step(intensity="cooldown", duration_s=600, target=_open()),
+            Step(intensity="cooldown", duration_s=600, target=_cooldown_target()),
         ],
     )
 
@@ -75,7 +77,7 @@ def openers(ftp_watts: float) -> StructuredWorkout:
                 Step(intensity="active", duration_s=60, target=_pwr(1.05, 1.15)),
                 Step(intensity="rest", duration_s=180, target=_pwr(0.50, 0.55)),
             ]),
-            Step(intensity="cooldown", duration_s=600, target=_open()),
+            Step(intensity="cooldown", duration_s=600, target=_cooldown_target()),
         ],
     )
 

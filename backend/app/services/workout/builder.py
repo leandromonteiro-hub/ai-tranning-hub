@@ -7,7 +7,7 @@ MODERATE -> the block template with reduced volume (never higher intensity).
 from __future__ import annotations
 
 from app.models.enums import BlockType, RiskLevel
-from app.services.workout import templates
+from app.services.workout import analysis, templates
 from app.services.workout.model import Repeat, StructuredWorkout
 
 
@@ -38,4 +38,5 @@ def build_for(
         if risk_level == RiskLevel.MODERATE:
             workout = _reduce(workout)
     workout.ftp_watts = ftp_watts
+    workout.estimated_tss = analysis.estimated_tss(workout)
     return workout
