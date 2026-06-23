@@ -105,6 +105,17 @@ def dashboard(token: str) -> None:
                 for e in rec.get("evidence", []):
                     st.write(f"- {e['description']}")
 
+            has_structured = bool((rec.get("payload") or {}).get("structured_workout"))
+            if has_structured:
+                fit_resp = api("GET", f"/recommendations/{rec['id']}/export.fit", token=token)
+                if fit_resp.status_code == 200:
+                    st.download_button(
+                        "⬇️ Baixar treino (.fit)",
+                        data=fit_resp.content,
+                        file_name=f"treino_{rec['id'][:8]}.fit",
+                        mime="application/octet-stream",
+                    )
+
             st.divider()
             st.markdown("#### Seu feedback após executar")
             rating = st.slider("Nota", 1, 5, 4)
