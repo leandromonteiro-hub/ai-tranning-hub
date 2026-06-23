@@ -175,6 +175,12 @@ async def test_recommendation_and_feedback_flow(client):
     )
     assert created.status_code == 201, created.text
 
+    # anamnese completa é pré-requisito para gerar recomendações
+    await client.put("/api/v1/athletes/me/profile", headers=h, json={
+        "birth_date": "1990-05-10", "sex": "M", "weight_kg": 72.0, "height_cm": 178.0,
+        "max_hr": 188, "primary_discipline": "XCO", "years_training": 6,
+        "goals": "Validação", "weekly_hours": 8.0,
+    })
     rec = await client.post("/api/v1/recommendations", headers=h, json={"kind": "daily_workout"})
     assert rec.status_code == 201, rec.text
     body = rec.json()

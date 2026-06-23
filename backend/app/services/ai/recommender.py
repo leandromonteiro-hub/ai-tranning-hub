@@ -26,7 +26,7 @@ from app.models.enums import BlockType, RecommendationDecision, RiskLevel
 from app.repositories.ai_repo import RecommendationRepository
 from app.repositories.metrics_repo import FtpRepository
 from app.repositories.plan_repo import TrainingWeekRepository
-from app.services.ai import evidence_builder, prompt_store, prompts, rag
+from app.services.ai import evidence_builder, profile_context, prompt_store, prompts, rag
 from app.services.ai.digital_twin import build_twin
 from app.services.ai.llm_client import LlmClient
 from app.services.ai.safety_validator import evaluate_safety
@@ -48,6 +48,8 @@ async def generate_recommendation(
 ) -> AiRecommendation:
     ctx.assert_can_access(athlete_id)
     target_date = target_date or date.today()
+
+    profile = await profile_context.fetch_profile(session, athlete_id)
 
     # 1. Digital twin (real data only)
     twin = await build_twin(session, ctx, athlete_id, as_of=target_date)
@@ -100,6 +102,7 @@ async def generate_recommendation(
         safety=safety_text,
         evidence=evidence_text,
         knowledge=knowledge_text,
+        profile=profile_context.profile_summary(profile),
         question=query if not safety.block_original else (
             query + "\n\nNOTE: guardrails flagged HIGH risk — you MUST recommend a "
             "conservative recovery-oriented alternative only."

@@ -14,6 +14,9 @@ SYSTEM_PROMPT = (
 )
 
 DAILY_WORKOUT_TEMPLATE = """\
+Athlete profile (anamnese — who this athlete is):
+{profile}
+
 Athlete digital-twin snapshot:
 {twin}
 
@@ -33,15 +36,17 @@ Produce a single recommendation as structured guidance including: the
 physiological objective, how it relates to the current block and target race,
 the supporting evidence, a confidence level (0-1) with justification, identified
 risks, how to scale down if the athlete is more tired, and how to scale down if
-they have less time available today.
+they have less time available today. Tailor it to the athlete profile above
+(experience, goals, weekly availability, injuries/limitations).
 """
 
 
 def render_daily_workout(
-    twin: str, safety: str, evidence: str, knowledge: str, question: str
+    twin: str, safety: str, evidence: str, knowledge: str, question: str,
+    profile: str = "n/d",
 ) -> str:
     return DAILY_WORKOUT_TEMPLATE.format(
-        twin=twin, safety=safety, evidence=evidence,
+        profile=profile, twin=twin, safety=safety, evidence=evidence,
         knowledge=knowledge, question=question or "Recommend today's workout.",
     )
 
@@ -52,5 +57,5 @@ def template_hash(template: str) -> str:
 
 # Registry of active templates (name -> (version, body)).
 ACTIVE_TEMPLATES = {
-    "daily_workout": (1, DAILY_WORKOUT_TEMPLATE),
+    "daily_workout": (2, DAILY_WORKOUT_TEMPLATE),
 }

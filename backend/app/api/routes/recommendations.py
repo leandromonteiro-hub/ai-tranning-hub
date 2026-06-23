@@ -14,6 +14,7 @@ from app.models.ai import AiDecision
 from app.models.enums import BlockType, RiskLevel
 from app.repositories.ai_repo import DecisionRepository, RecommendationRepository
 from app.schemas.ai import DecisionRequest, RecommendationRead, RecommendationRequest
+from app.services.ai.profile_context import anamnese_complete, fetch_profile
 from app.services.ai.recommender import generate_recommendation
 from app.services.workout.builder import build_for
 from app.services.workout.fit_encoder import encode as encode_fit
@@ -60,6 +61,12 @@ async def create_recommendation(
     ctx: TenantContext = Depends(get_tenant),
     db: AsyncSession = Depends(get_db),
 ):
+    profile = await fetch_profile(db, ctx.athlete_id)
+    if not anamnese_complete(profile):
+        raise HTTPException(
+            status_code=409,
+            detail="Anamnese incompleta — complete seu perfil antes de gerar recomendações.",
+        )
     rec = await generate_recommendation(
         db, ctx, ctx.athlete_id,
         target_date=body.target_date, kind=body.kind, question=body.question,

@@ -66,6 +66,12 @@ async def test_export_fit_returns_file_for_owner_and_isolates_others(client_with
     ha = {"Authorization": f"Bearer {await _login(client_with_ftp, 'a@example.com')}"}
     hb = {"Authorization": f"Bearer {await _login(client_with_ftp, 'b@example.com')}"}
 
+    # anamnese completa é pré-requisito para gerar recomendações
+    await client_with_ftp.put("/api/v1/athletes/me/profile", headers=ha, json={
+        "birth_date": "1990-05-10", "sex": "M", "weight_kg": 72.0, "height_cm": 178.0,
+        "max_hr": 188, "primary_discipline": "XCO", "years_training": 6,
+        "goals": "Validação", "weekly_hours": 8.0,
+    })
     rec = await client_with_ftp.post("/api/v1/recommendations", headers=ha,
                                      json={"kind": "daily_workout"})
     assert rec.status_code == 201, rec.text
@@ -82,6 +88,12 @@ async def test_export_fit_returns_file_for_owner_and_isolates_others(client_with
 
 async def test_export_fit_404_when_recommendation_has_no_structured_workout(client_with_ftp):
     hb = {"Authorization": f"Bearer {await _login(client_with_ftp, 'b@example.com')}"}
+    # anamnese completa é pré-requisito para gerar recomendações
+    await client_with_ftp.put("/api/v1/athletes/me/profile", headers=hb, json={
+        "birth_date": "1990-05-10", "sex": "M", "weight_kg": 72.0, "height_cm": 178.0,
+        "max_hr": 188, "primary_discipline": "XCO", "years_training": 6,
+        "goals": "Validação", "weekly_hours": 8.0,
+    })
     rec = await client_with_ftp.post("/api/v1/recommendations", headers=hb, json={"kind": "daily_workout"})
     assert rec.status_code == 201, rec.text
     rec_id = rec.json()["id"]

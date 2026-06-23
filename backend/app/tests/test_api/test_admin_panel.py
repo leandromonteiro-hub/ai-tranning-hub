@@ -64,6 +64,12 @@ async def test_admin_feedback_includes_athlete_id(client_admin):
     me = (await client_admin.get("/api/v1/athletes/me", headers=ath)).json()
     athlete_id = me["id"]
 
+    # anamnese completa é pré-requisito para gerar recomendações
+    await client_admin.put("/api/v1/athletes/me/profile", headers=ath, json={
+        "birth_date": "1990-05-10", "sex": "M", "weight_kg": 72.0, "height_cm": 178.0,
+        "max_hr": 188, "primary_discipline": "XCO", "years_training": 6,
+        "goals": "Validação", "weekly_hours": 8.0,
+    })
     rec = await client_admin.post("/api/v1/recommendations", headers=ath,
                                   json={"kind": "daily_workout"})
     assert rec.status_code == 201, rec.text
