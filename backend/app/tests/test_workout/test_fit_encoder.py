@@ -13,11 +13,13 @@ def _decode_steps(data: bytes):
         if isinstance(r.message, WorkoutStepMessage):
             m = r.message
             steps.append((m.intensity, m.duration_value,
-                          m.custom_target_power_low, m.custom_target_power_high))
+                          m.custom_target_power_low, m.custom_target_power_high,
+                          m.target_type))
     return steps
 
 
 def test_encode_flattens_repeats_and_encodes_watts():
+    from fit_tool.profile.profile_type import WorkoutStepTarget
     w = StructuredWorkout(
         name="Sweet Spot 3x12",
         elements=[
@@ -43,6 +45,15 @@ def test_encode_flattens_repeats_and_encodes_watts():
     assert steps[1][0] == 0      # Intensity.ACTIVE == 0
     assert steps[1][2] == 1220
     assert steps[1][3] == 1233
+    # rest step (index 2): intensity REST==1, duration 300s, power 0.50/0.55 of 250
+    # floor(0.50*250+0.5)+1000=1125, floor(0.55*250+0.5)+1000=1138
+    assert steps[2][0] == 1      # Intensity.REST == 1
+    assert steps[2][1] == 300000
+    assert steps[2][2] == 1125
+    assert steps[2][3] == 1138
+    # cooldown step (index 7): intensity COOLDOWN==3, target_type OPEN
+    assert steps[7][0] == 3      # Intensity.COOLDOWN == 3
+    assert steps[7][4] == WorkoutStepTarget.OPEN.value
 
 
 def test_encode_requires_ftp():

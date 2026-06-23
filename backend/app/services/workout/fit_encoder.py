@@ -6,6 +6,8 @@ repeat_until_steps_cmplt grouping is a future enhancement). FIT conventions
 """
 from __future__ import annotations
 
+import math
+
 from fit_tool.fit_file_builder import FitFileBuilder
 from fit_tool.profile.messages.file_id_message import FileIdMessage
 from fit_tool.profile.messages.workout_message import WorkoutMessage
@@ -36,12 +38,14 @@ def _flatten(elements: list) -> list[Step]:
 
 
 def _power_field(frac: float, ftp_watts: float) -> int:
-    # Use arithmetic rounding (half-up) rather than Python's banker's rounding
-    # to match FIT encoder convention: 0.93*250=232.5 -> 233, not 232.
-    return int(frac * ftp_watts + 0.5) + 1000
+    # Domain is always non-negative (frac >= 0, ftp_watts > 0), so half-up via
+    # floor is exact and safe: e.g. 0.93*250=232.5 -> floor(233.0) -> 233.
+    return math.floor(frac * ftp_watts + 0.5) + 1000
 
 
 def encode(workout: StructuredWorkout) -> bytes:
+    # Rejects missing/None AND non-positive FTP; power targets cannot be resolved
+    # without a positive FTP, so both cases are intentionally invalid.
     if not workout.ftp_watts:
         raise ValueError("workout.ftp_watts is required to encode power targets")
     ftp = workout.ftp_watts
