@@ -310,10 +310,62 @@ def dashboard(token: str) -> None:
         recommendations_tab(token)
 
 
+def admin_dashboard(token: str) -> None:
+    st.sidebar.success("Treinador (admin)")
+    if st.sidebar.button("Sair"):
+        st.session_state.pop("token", None)
+        st.rerun()
+
+    st.title("📋 Painel do treinador — validação")
+
+    usage = api("GET", "/admin/usage", token=token)
+    u = usage.json() if usage.status_code == 200 else {}
+    st.subheader("📊 Métricas da validação")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Atletas", u.get("athletes", 0))
+    c2.metric("Treinos", u.get("workouts", 0))
+    c3.metric("Recomendações", u.get("recommendations", 0))
+    c4.metric("Feedbacks", u.get("feedback_count", 0))
+    c5.metric("Nota média", f"{u.get('avg_feedback_rating', 0):.1f}")
+
+    ath_resp = api("GET", "/admin/athletes", token=token)
+    athletes = ath_resp.json() if ath_resp.status_code == 200 else []
+    names = {a["id"]: a["full_name"] for a in athletes}
+
+    st.subheader("👥 Atletas")
+    if athletes:
+        st.dataframe(pd.DataFrame([
+            {"Nome": a["full_name"], "Email": a["email"],
+             "Ativo": "✅" if a.get("is_active") else "—"}
+            for a in athletes
+        ]), hide_index=True, use_container_width=True)
+    else:
+        st.info("Nenhum atleta.")
+
+    st.subheader("💬 Feedbacks")
+    fb_resp = api("GET", "/admin/feedback", token=token)
+    feedbacks = fb_resp.json() if fb_resp.status_code == 200 else []
+    if feedbacks:
+        st.dataframe(pd.DataFrame([
+            {"Atleta": names.get(f.get("athlete_id"), str(f.get("athlete_id"))[:8]),
+             "Nota": f.get("rating"),
+             "Fez sentido": "✅" if f.get("made_sense") else "—",
+             "Comentário": f.get("comment") or "",
+             "Data": (f.get("created_at") or "")[:10]}
+            for f in feedbacks
+        ]), hide_index=True, use_container_width=True)
+    else:
+        st.info("Nenhum feedback ainda.")
+
+
 def main() -> None:
     token = st.session_state.get("token")
     if not token:
         login_view()
+        return
+    me = api("GET", "/athletes/me", token=token).json()
+    if me.get("role") == "ADMIN":
+        admin_dashboard(token)
     else:
         dashboard(token)
 
