@@ -121,3 +121,43 @@ Final run:
 2. **`weight_kg=0` guard**: Zero weight returns `None` for W/kg (division-by-zero protection) — this is explicit and intentional.
 3. **Measured zones index alignment**: `extra["pwr_zone_minutes"]` positions map to TP's own zone numbering (which may vary per athlete account). The aggregation is index-faithful — interpretation of which zone index = which power zone is deferred to the report builder (ST2.4).
 4. **No FTP used in `intensity_distribution`**: The IF-based 3-zone classification does not require `zones_calculator.power_zones(ftp)` because IF already encodes the FTP-relative intensity. This is simpler and avoids a circular dependency with FTP estimation. The plan note ("Reuse zones_calculator where helpful") was evaluated and the IF approach was chosen as cleaner for per-workout classification.
+
+---
+
+## Fix Section — Code Review Follow-up (Approved + 2 Important + 3 Minor)
+
+All fixes applied to `profile_metrics.py` (+ tests). Measured/derived separation and threshold constants unchanged.
+
+1. **(Important) Operator-precedence bug in `_normalise_sport`.** The clause parsed as
+   `... or ("run" not in lower and "force" in lower)`, mis-classifying "force"-containing
+   strings as strength. Parenthesised to `("force" in lower and "run" not in lower)`. Added
+   tests: real strength/gym/weight strings classify as "strength"; "force run" does NOT.
+2. **(Important) `ModalitySplit.total_workouts` leaked the `or 1` denominator on empty input.**
+   Split real totals (`total`, `total_h`) from division denominators (`sport_denom`, etc.).
+   Exposed `total`/`total_h` on the dataclass. Empty-input test now asserts `total_workouts == 0`
+   and `total_hours == 0.0`.
+3. **(Minor) `by_workout_type` percentages now self-contained** — own denominators
+   `type_denom`/`type_h_denom` (`sum(type_counts.values()) or 1`) instead of reusing sport totals.
+4. **(Minor) Stale module-docstring signature** `intensity_distribution(workouts, ftp)` →
+   `intensity_distribution(workouts)`.
+5. **(Minor) Added note on `DerivedZones`** that the three zone percentages are rounded (4dp)
+   and may not sum to exactly 1.0.
+
+### Verification (pytest)
+
+Targeted file — `app/tests/test_analysis/test_profile_metrics.py`:
+```
+collected 56 items
+app/tests/test_analysis/test_profile_metrics.py ........................ [ 42%]
+................................                                         [100%]
+======================== 56 passed, 1 warning in 0.79s =========================
+```
+
+Full suite — `python -m pytest -q`:
+```
+........................................................................ [ 37%]
+........................................................................ [ 74%]
+..................................................                       [100%]
+194 passed (1 warning)
+```
+(2 new tests added: strength-keyword and force-substring guards → 54 → 56 in the file.)

@@ -259,9 +259,24 @@ class TestModalitySplit:
 
     def test_empty_input(self) -> None:
         result = modality_split([])
-        assert result.total_workouts == 1  # denominator protection
+        # Exposed total is the real count (0), not the division denominator guard
+        assert result.total_workouts == 0
+        assert result.total_hours == pytest.approx(0.0)
         assert result.by_sport == []
         assert result.by_workout_type == []
+
+    def test_strength_keyword_classified_as_strength(self) -> None:
+        for s in ("strength", "Gym", "weight training"):
+            result = modality_split([_w(sport=s)])
+            assert result.by_sport[0].sport == "strength"
+
+    def test_force_substring_not_misclassified_as_strength(self) -> None:
+        # A non-gym string containing "force" but also "run" must NOT become
+        # "strength" (operator-precedence regression guard). "force run" has
+        # both substrings; the precedence bug would have classified it as
+        # strength because the "or"/"and" grouping was wrong.
+        result = modality_split([_w(sport="force run")])
+        assert result.by_sport[0].sport != "strength"
 
     def test_workout_type_enum_string(self) -> None:
         # WorkoutType.ENDURANCE as a string like "WorkoutType.ENDURANCE"

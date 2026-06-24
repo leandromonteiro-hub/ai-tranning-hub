@@ -9,7 +9,7 @@ Overview of public API
 -----------------------
 weekly_volume_trend(workouts)          -> WeeklyVolumeTrend
 modality_split(workouts)               -> ModalitySplit
-intensity_distribution(workouts, ftp)  -> IntensityDistribution
+intensity_distribution(workouts)       -> IntensityDistribution
 best_power_marks(power_curve, weight_kg) -> BestPowerMarks
 
 Input protocol
@@ -243,6 +243,9 @@ class DerivedZones:
     z3_pct:          Fraction of classifiable hours in Z3 (0-1).
     distribution_label: "polarized" | "pyramidal" | "sweet_spot" | "mixed".
     workouts_classified: Number of workouts with a valid IF.
+
+    Note: z1_pct/z2_pct/z3_pct are rounded to 4 decimal places and may not sum
+    to exactly 1.0 (e.g. a 3-way even split rounds to 0.9999).
     """
 
     source: str = "derived_if"
@@ -319,7 +322,7 @@ def _normalise_sport(raw: str) -> str:
         return "cycling"
     if "swim" in lower or "pool" in lower:
         return "swim"
-    if "strength" in lower or "gym" in lower or "weight" in lower or "run" not in lower and "force" in lower:
+    if "strength" in lower or "gym" in lower or "weight" in lower or ("force" in lower and "run" not in lower):
         return "strength"
     if "run" in lower or "trail" in lower:
         return "running"
@@ -452,8 +455,14 @@ def modality_split(workouts: list[Any]) -> ModalitySplit:
         type_counts[wtype] = type_counts.get(wtype, 0) + 1
         type_hours[wtype] = type_hours.get(wtype, 0.0) + hours
 
-    total_w = sum(sport_counts.values()) or 1
-    total_h = sum(sport_hours.values()) or 1.0
+    # Real totals (exposed on the dataclass) kept separate from the division
+    # denominators (which guard against division by zero on empty input).
+    total = sum(sport_counts.values())
+    total_h = sum(sport_hours.values())
+    sport_denom = total or 1
+    sport_h_denom = total_h or 1.0
+    type_denom = sum(type_counts.values()) or 1
+    type_h_denom = sum(type_hours.values()) or 1.0
 
     by_sport = sorted(
         [
@@ -461,8 +470,8 @@ def modality_split(workouts: list[Any]) -> ModalitySplit:
                 sport=s,
                 workout_count=sport_counts[s],
                 total_hours=round(sport_hours[s], 3),
-                pct_workouts=round(sport_counts[s] / total_w, 4),
-                pct_hours=round(sport_hours[s] / total_h, 4),
+                pct_workouts=round(sport_counts[s] / sport_denom, 4),
+                pct_hours=round(sport_hours[s] / sport_h_denom, 4),
             )
             for s in sport_counts
         ],
@@ -476,8 +485,8 @@ def modality_split(workouts: list[Any]) -> ModalitySplit:
                 workout_type=t,
                 workout_count=type_counts[t],
                 total_hours=round(type_hours[t], 3),
-                pct_workouts=round(type_counts[t] / total_w, 4),
-                pct_hours=round(type_hours[t] / total_h, 4),
+                pct_workouts=round(type_counts[t] / type_denom, 4),
+                pct_hours=round(type_hours[t] / type_h_denom, 4),
             )
             for t in type_counts
         ],
@@ -488,8 +497,8 @@ def modality_split(workouts: list[Any]) -> ModalitySplit:
     return ModalitySplit(
         by_sport=by_sport,
         by_workout_type=by_type,
-        total_workouts=total_w,
-        total_hours=round(sum(sport_hours.values()), 3),
+        total_workouts=total,
+        total_hours=round(total_h, 3),
     )
 
 
