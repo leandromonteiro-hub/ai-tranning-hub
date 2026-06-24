@@ -8,8 +8,10 @@ export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   const isPublic =
-    pathname.startsWith("/login") ||
-    pathname.startsWith("/api/auth") ||
+    pathname === "/login" ||
+    pathname.startsWith("/login/") ||
+    pathname === "/api/auth" ||
+    pathname.startsWith("/api/auth/") ||
     pathname === "/logo.svg";
   if (isPublic) return NextResponse.next();
 
