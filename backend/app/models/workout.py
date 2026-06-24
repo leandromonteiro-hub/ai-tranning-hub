@@ -68,6 +68,7 @@ class WorkoutCompleted(Base, TenantMixin):
     )
     external_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extra: Mapped[dict | None] = mapped_column(jsonb(), nullable=True)
 
     streams: Mapped[list["WorkoutStream"]] = relationship(back_populates="workout")
 
@@ -123,6 +124,7 @@ class WorkoutPlanned(Base, TenantMixin):
     planned_tss: Mapped[float | None] = mapped_column(Float, nullable=True)
     structure: Mapped[dict | None] = mapped_column(jsonb(), nullable=True)  # interval blocks
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extra: Mapped[dict | None] = mapped_column(jsonb(), nullable=True)
     # Optional link to the recommendation that generated this plan (traceability)
     source_recommendation_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("ai_recommendations.id"), nullable=True
