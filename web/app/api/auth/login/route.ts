@@ -28,7 +28,9 @@ export async function POST(request: Request) {
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: 60 * 60 * 24,
+    // Match the backend access-token lifetime (access_token_expire_minutes = 30).
+    // Refresh-token rotation is deferred to M2; for now the session ends with the token.
+    maxAge: 60 * 30,
   });
   return response;
 }
