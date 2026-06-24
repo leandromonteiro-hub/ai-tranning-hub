@@ -4,9 +4,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
-  Users,
-  BarChart3,
-  Settings,
+  HeartPulse,
+  Activity,
+  ClipboardCheck,
+  Upload,
+  Flag,
+  CalendarRange,
+  Brain,
   ShieldCheck,
   LogOut,
   Moon,
@@ -14,6 +18,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useTheme } from "./ThemeProvider";
+import type { Role } from "@/lib/session";
 
 export interface NavItem {
   label: string;
@@ -21,25 +26,46 @@ export interface NavItem {
   icon: LucideIcon;
 }
 
-/* Configure the menu here — add/remove items freely. */
 export const NAV_ITEMS: NavItem[] = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Usuários", href: "/users", icon: Users },
-  { label: "Relatórios", href: "/reports", icon: BarChart3 },
-  { label: "Configurações", href: "/settings", icon: Settings },
+  { label: "Início", href: "/", icon: LayoutDashboard },
+  { label: "Anamnese", href: "/anamnese", icon: HeartPulse },
+  { label: "Forma & Carga", href: "/forma-carga", icon: Activity },
+  { label: "Check-in", href: "/checkin", icon: ClipboardCheck },
+  { label: "Importar", href: "/importar", icon: Upload },
+  { label: "Provas", href: "/provas", icon: Flag },
+  { label: "Plano", href: "/plano", icon: CalendarRange },
+  { label: "Recomendações", href: "/recomendacoes", icon: Brain },
 ];
 
-/* Optional "Admin" section — omit to hide. */
 export const ADMIN_ITEMS: NavItem[] = [
-  { label: "Permissões", href: "/admin/roles", icon: ShieldCheck },
+  { label: "Painel do treinador", href: "/admin", icon: ShieldCheck },
 ];
 
-export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "—";
+  return (parts[0][0] + (parts[1]?.[0] ?? "")).toUpperCase();
+}
+
+export function Sidebar({
+  role,
+  userName,
+  onNavigate,
+}: {
+  role: Role | null;
+  userName: string;
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
 
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.href = "/login";
+  }
+
   const renderItem = (item: NavItem) => {
-    const active = pathname === item.href || pathname.startsWith(item.href + "/");
+    const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
     const Icon = item.icon;
     return (
       <Link
@@ -61,18 +87,16 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <aside className="flex h-full w-64 flex-col bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800">
-      {/* Logo */}
       <div className="flex items-center gap-3 px-6 h-16 border-b border-slate-100 dark:border-slate-800">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo.svg" alt="" className="h-8 w-8" />
         <span className="font-bold text-slate-800 dark:text-slate-100">Meu App</span>
       </div>
 
-      {/* Nav */}
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
         {NAV_ITEMS.map(renderItem)}
 
-        {ADMIN_ITEMS.length > 0 && (
+        {role === "ADMIN" && (
           <div className="pt-4 mt-4 border-t border-slate-100 dark:border-slate-800 space-y-1">
             <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-slate-400">
               Admin
@@ -82,7 +106,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         )}
       </nav>
 
-      {/* Footer: theme toggle + user + logout */}
       <div className="border-t border-slate-100 dark:border-slate-800 p-3 space-y-1">
         <button
           type="button"
@@ -95,21 +118,22 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
         <div className="flex items-center gap-3 px-3 py-2">
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-200 dark:bg-slate-700 text-sm font-semibold text-slate-600 dark:text-slate-200">
-            MA
+            {initials(userName)}
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-slate-700 dark:text-slate-200">
-              Usuário
+              {userName || "Usuário"}
             </p>
-            <p className="truncate text-xs text-slate-400">user@exemplo.com</p>
+            <p className="truncate text-xs text-slate-400">{role === "ADMIN" ? "Treinador" : "Atleta"}</p>
           </div>
-          <Link
-            href="/login"
+          <button
+            type="button"
+            onClick={logout}
             aria-label="Sair"
             className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
           >
             <LogOut className="h-5 w-5" />
-          </Link>
+          </button>
         </div>
       </div>
     </aside>
