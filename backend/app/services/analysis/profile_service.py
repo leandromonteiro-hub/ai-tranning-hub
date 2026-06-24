@@ -294,11 +294,14 @@ async def generate_and_persist_profile(
     session: AsyncSession,
     ctx: TenantContext,
     athlete_id: uuid.UUID,
+    athlete_name: str = "Athlete",
 ) -> dict:
     """Run the full analysis pipeline and persist results for one athlete.
 
     This function is the DB-persistence core of Task 2. It does NOT write any
-    files (markdown or otherwise). The CLI wraps it to add the file write.
+    files (markdown or otherwise) — but it DOES build the markdown report once
+    and return it in the summary so the CLI can write it without re-running the
+    pipeline. The future onboarding endpoint can simply ignore ``report_md``.
 
     Parameters
     ----------
@@ -309,6 +312,9 @@ async def generate_and_persist_profile(
         multi-tenant isolation). ``ctx.athlete_id`` is used as ``created_by``.
     athlete_id:
         UUID of the athlete to analyse.
+    athlete_name:
+        Display name fed to report_builder/twin_seed. Defaults to "Athlete"
+        (the onboarding endpoint can rely on the default).
 
     Returns
     -------
@@ -320,6 +326,7 @@ async def generate_and_persist_profile(
         n_races         : int   — race events detected
         excluded_power_streams : int — streams excluded as implausible
         richness        : dict  — RichnessIndex as a plain dict
+        report_md       : str   — the built PT-BR markdown report
     """
     # --- Load data ---
     workouts = await _load_workouts_with_streams(session, athlete_id)
@@ -329,8 +336,6 @@ async def generate_and_persist_profile(
 
     # Weight from profile if available
     weight_kg: float | None = profile.weight_kg if profile is not None else None
-    # Athlete name: use a placeholder when profile is missing (the CLI supplies the name separately)
-    athlete_name: str = "Athlete"
 
     # --- ST2.1: FTP estimation + power curve ---
     all_streams = [
@@ -356,8 +361,8 @@ async def generate_and_persist_profile(
     tapers = taper_windows(races, load_metrics)
     comment_terms = coach_comment_terms(workouts)
 
-    # --- Report builder (builds twin_seed; we discard the markdown string) ---
-    _report_md, twin_seed = build_profile_report(
+    # --- Report builder (builds the markdown report + twin_seed in one pass) ---
+    report_md, twin_seed = build_profile_report(
         athlete_name=athlete_name,
         weight_kg=weight_kg,
         volume_trend=vol_trend,
@@ -420,4 +425,5 @@ async def generate_and_persist_profile(
         "n_races": len(races),
         "excluded_power_streams": excluded_streams,
         "richness": asdict(richness),
+        "report_md": report_md,
     }

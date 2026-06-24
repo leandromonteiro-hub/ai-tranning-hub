@@ -13,11 +13,10 @@ Environment overrides:
 
 What it does:
     1. Calls generate_and_persist_profile (DB persistence — FtpHistory,
-       PowerCurvePoint, AthleteProfile.twin_seed including data_richness).
-    2. Re-runs the analysis steps to build the markdown report (no extra
-       DB round-trip for workouts/profile; reads result from service).
-    3. Writes docs/atletas/<slug>-perfil.md.
-    4. Commits and prints a short summary.
+       PowerCurvePoint, AthleteProfile.twin_seed including data_richness) which
+       also builds the markdown report ONCE and returns it in the summary.
+    2. Writes docs/atletas/<slug>-perfil.md from summary["report_md"].
+    3. Commits and prints a short summary (including data richness).
 
 Idempotency strategy:
     - FtpHistory: match on (athlete_id, valid_from, source="task2_analysis");
@@ -32,46 +31,17 @@ import argparse
 import asyncio
 import os
 import uuid
-from datetime import date, timedelta
 from pathlib import Path
-from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.core.database import AsyncSessionLocal
 from app.core.tenant import TenantContext
-from app.models.athlete import Athlete, AthleteProfile
 from app.models.enums import Role
-from app.models.metrics import FtpHistory, LoadMetric, PowerCurvePoint
-from app.models.workout import WorkoutCompleted, WorkoutStream
 from app.repositories.athlete_repo import AthleteRepository
 
-# Import reusable helpers + service from profile_service (single source of truth)
-from app.services.analysis.profile_service import (
-    _build_quarterly_windows,
-    _load_load_metrics,
-    _load_profile,
-    _load_workouts_with_streams,
-    _upsert_ftp_history,
-    _upsert_power_curve_points,
-    generate_and_persist_profile,
-)
-from app.services.analysis.ftp_estimator import all_time_power_curve, estimate_ftp_timeline
-from app.services.analysis.methodology import (
-    coach_comment_terms,
-    detect_blocks,
-    detect_races,
-    taper_windows,
-)
-from app.services.analysis.profile_metrics import (
-    best_power_marks,
-    intensity_distribution,
-    modality_split,
-    weekly_volume_trend,
-)
-from app.services.analysis.report_builder import build_profile_report
+# DB persistence + report building live in the reusable service (single source of truth)
+from app.services.analysis.profile_service import generate_and_persist_profile
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -96,22 +66,21 @@ async def run_analysis(
     athlete_name: str,
     output_dir: Path,
     slug: str,
-    weight_kg: float | None = None,
 ) -> str:
-    """Run the full analysis pipeline for one athlete.
+    """Run the full analysis pipeline for one athlete and write the report.
 
-    Delegates DB persistence to ``generate_and_persist_profile``, then
-    re-runs the analysis to produce the markdown report and writes it to
+    Delegates ALL analysis + DB persistence to ``generate_and_persist_profile``
+    (which runs the pipeline exactly once and returns the built markdown in
+    ``summary["report_md"]``), then writes that markdown to
     ``output_dir/<slug>-perfil.md``.
 
     Parameters
     ----------
     session:      AsyncSession (caller manages commit/rollback).
     athlete_id:   UUID of the athlete.
-    athlete_name: Full name (used in report).
+    athlete_name: Full name (fed to the report/twin_seed).
     output_dir:   Directory where <slug>-perfil.md will be written.
     slug:         File basename slug.
-    weight_kg:    Optional weight override; loaded from profile if None.
 
     Returns
     -------
@@ -124,63 +93,17 @@ async def run_analysis(
         role=Role.ATHLETE,
     )
 
-    # --- DB persistence via reusable service ---
-    summary = await generate_and_persist_profile(session, ctx, athlete_id)
-
-    # --- Reload data to build the markdown report (needs athlete_name + weight_kg) ---
-    workouts = await _load_workouts_with_streams(session, athlete_id)
-    load_metrics = await _load_load_metrics(session, athlete_id)
-    profile = await _load_profile(session, athlete_id)
-
-    # Weight resolution: explicit arg > profile > None
-    if weight_kg is None and profile is not None:
-        weight_kg = profile.weight_kg
-
-    # --- ST2.1: FTP estimation + power curve ---
-    all_streams = [
-        list(stream.power)
-        for w in workouts
-        for stream in w.streams
-        if stream.power
-    ]
-    power_curve_dict, excluded_streams = all_time_power_curve(all_streams)
-    windows = _build_quarterly_windows(workouts)
-    ftp_timeline = estimate_ftp_timeline(windows)
-
-    # --- ST2.2: Profile metrics ---
-    vol_trend = weekly_volume_trend(workouts)
-    modality = modality_split(workouts)
-    intensity = intensity_distribution(workouts)
-    marks = best_power_marks(power_curve_dict, weight_kg=weight_kg)
-
-    # --- ST2.3: Methodology ---
-    blocks = detect_blocks(load_metrics)
-    races = detect_races(workouts)
-    tapers = taper_windows(races, load_metrics)
-    comment_terms = coach_comment_terms(workouts)
-
-    # --- Report builder ---
-    report_md, _twin_seed = build_profile_report(
-        athlete_name=athlete_name,
-        weight_kg=weight_kg,
-        volume_trend=vol_trend,
-        modality=modality,
-        intensity=intensity,
-        power_marks=marks,
-        blocks=blocks,
-        races=races,
-        tapers=tapers,
-        comment_terms=comment_terms,
-        ftp_timeline=ftp_timeline,
-        excluded_streams=excluded_streams,
+    # --- Analysis + DB persistence + report build (single pass) ---
+    summary = await generate_and_persist_profile(
+        session, ctx, athlete_id, athlete_name=athlete_name
     )
 
-    # --- Write report ---
+    # --- Write report from the markdown the service already built ---
     output_dir.mkdir(parents=True, exist_ok=True)
     report_path = output_dir / f"{slug}-perfil.md"
-    report_path.write_text(report_md, encoding="utf-8")
+    report_path.write_text(summary["report_md"], encoding="utf-8")
 
-    # Print summary (now includes richness)
+    # Print summary (includes richness)
     richness = summary.get("richness", {})
     print(f"\n{'='*60}")
     print(f"  Análise concluída: {athlete_name}")
