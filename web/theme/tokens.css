@@ -1,0 +1,21 @@
+/* Generic, neutral design tokens — swap these later for any brand.
+   Used via var(--token) for gradients/radii; the rest of the UI leans on
+   Tailwind's default palette (slate/blue/emerald) so tokens stay overridable. */
+:root {
+  --primary: #2563eb;        /* blue-600  */
+  --primary-dark: #1d4ed8;   /* blue-700  */
+  --primary-light: #eff6ff;  /* blue-50   */
+  --accent: #10b981;         /* emerald-500 */
+  --bg: #f8fafc;             /* slate-50  */
+  --bg-dark: #0f172a;        /* slate-900 */
+  --surface: #ffffff;
+  --surface-dark: #0f172a;   /* slate-900 */
+  --text: #1e293b;           /* slate-800 */
+  --text-muted: #64748b;     /* slate-500 */
+  --border: #e2e8f0;         /* slate-200 */
+  --radius: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --gradient-button: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  --gradient-bar: linear-gradient(90deg, var(--primary), var(--accent));
+}
