@@ -36,6 +36,7 @@ class NormalizedActivity:
     cadence_stream: list[float] = field(default_factory=list)
     altitude_stream: list[float] = field(default_factory=list)
     notes: str | None = None
+    extra: dict = field(default_factory=dict)
 
 
 def classify_workout_type(if_value: float | None) -> WorkoutType:

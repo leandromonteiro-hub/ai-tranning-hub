@@ -194,6 +194,7 @@ async def _persist_activity(
         source_file_id=file_id,
         external_id=act.external_id,
         notes=act.notes,
+        extra=act.extra or None,
     )
     await workout_repo.add(workout)
 
