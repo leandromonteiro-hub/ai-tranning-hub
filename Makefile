@@ -5,7 +5,7 @@ COMPOSE = docker compose
 DEV = docker compose -f docker-compose.yml -f docker-compose.dev.yml
 
 .PHONY: help up dev down logs ps migrate makemigration revision test test-cov \
-        shell-api shell-db seed import lint fmt clean
+        shell-api shell-db seed import import-athlete lint fmt clean
 
 help:
 	@echo "Athlete AI Training Hub"
@@ -52,6 +52,9 @@ seed-knowledge:
 
 import:
 	$(COMPOSE) exec api python -m app.scripts.sample_import
+
+import-athlete:
+	$(COMPOSE) exec api python -m app.scripts.import_athlete --athlete $(ATHLETE) --email $(EMAIL)
 
 test:
 	$(COMPOSE) exec api pytest -q
