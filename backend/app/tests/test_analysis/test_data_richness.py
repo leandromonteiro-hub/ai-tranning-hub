@@ -267,3 +267,156 @@ class TestScoreAndLabel:
         workouts = [_w() for _ in range(42)]
         result = compute_richness(workouts, [], None, None)
         assert result.n_workouts == 42
+
+
+# ---------------------------------------------------------------------------
+# Exact-value regression — pins the formula against silent weight drift
+# ---------------------------------------------------------------------------
+
+
+class TestExactScoreRegression:
+    def test_fully_rich_scores_exactly_one(self) -> None:
+        """≈2 yrs, 300 completed workouts, 100% power/hrv/sleep → score == 1.0.
+
+        Components: history 1.0*0.25 + power 1.0*0.30 + hrv 1.0*0.20
+                    + count 1.0*0.15 + sleep 1.0*0.10 = 1.00
+        """
+        workouts = [_w(avg_power=200.0, avg_hr=140.0) for _ in range(300)]
+        recovery = [_r(hrv_ms=45.0, sleep_hours=7.5) for _ in range(100)]
+        result = compute_richness(
+            workouts, recovery, date(2022, 1, 1), date(2024, 6, 1)
+        )
+        assert result.score == pytest.approx(1.0)
+        assert result.label == "alta"
+
+    def test_partial_hand_computed_score(self) -> None:
+        """Hand-computed partial case asserted to abs=1e-4.
+
+        Period > 2 yrs              → history_component = 1.0  → 0.25 * 1.0 = 0.25
+        60% of completed have power → power_component   = 0.6  → 0.30 * 0.6 = 0.18
+        0% recovery have hrv        → hrv_component     = 0.0  → 0.20 * 0.0 = 0.00
+        150 completed workouts      → count_component   = 0.5  → 0.15 * 0.5 = 0.075
+        0% recovery have sleep      → sleep_component   = 0.0  → 0.10 * 0.0 = 0.00
+        Expected score = 0.25 + 0.18 + 0.00 + 0.075 + 0.00 = 0.505
+        """
+        # 150 completed workouts, 90 with power (60%), 60 without
+        workouts = [_w(avg_power=200.0) for _ in range(90)] + [
+            _w(avg_power=None) for _ in range(60)
+        ]
+        recovery = [_r(hrv_ms=None, sleep_hours=None) for _ in range(20)]
+        result = compute_richness(
+            workouts, recovery, date(2022, 1, 1), date(2024, 6, 1)
+        )
+        assert result.pct_power == pytest.approx(60.0)
+        assert result.score == pytest.approx(0.505, abs=1e-4)
+        assert result.label == "média"
+
+
+# ---------------------------------------------------------------------------
+# Boundary-pinned label tests — protect the threshold constants
+# ---------------------------------------------------------------------------
+
+
+class TestLabelBoundaries:
+    """Engineer scores straddling 0.40 and 0.70 and assert the label flips.
+
+    Period > 2 yrs is used throughout so history_component == 1.0 exactly
+    (contributes 0.25), keeping the other components easy to reason about.
+    """
+
+    # --- 0.40 boundary: baixa ↔ média --------------------------------------
+
+    def test_just_below_040_is_baixa(self) -> None:
+        """Score engineered just under 0.40 → 'baixa'.
+
+        history 1.0*0.25                       = 0.25
+        30 completed, 12 power (40%) 0.30*0.40  = 0.12
+        count 30/300=0.1 * 0.15                 = 0.015
+        Expected = 0.385  (< 0.40)
+        """
+        workouts = [_w(avg_power=200.0) for _ in range(12)] + [
+            _w(avg_power=None) for _ in range(18)
+        ]
+        result = compute_richness(
+            workouts, [], date(2022, 1, 1), date(2024, 6, 1)
+        )
+        assert result.score == pytest.approx(0.385, abs=1e-4)
+        assert result.label == "baixa"
+
+    def test_just_above_040_is_media(self) -> None:
+        """Score engineered just over 0.40 → 'média'.
+
+        history 1.0*0.25                       = 0.25
+        30 completed, 15 power (50%) 0.30*0.50  = 0.15
+        count 30/300=0.1 * 0.15                 = 0.015
+        Expected = 0.415  (>= 0.40)
+        """
+        workouts = [_w(avg_power=200.0) for _ in range(15)] + [
+            _w(avg_power=None) for _ in range(15)
+        ]
+        result = compute_richness(
+            workouts, [], date(2022, 1, 1), date(2024, 6, 1)
+        )
+        assert result.score == pytest.approx(0.415, abs=1e-4)
+        assert result.label == "média"
+
+    # --- 0.70 boundary: média ↔ alta ---------------------------------------
+
+    def test_just_below_070_is_media(self) -> None:
+        # history 0.25 + power(100%) 0.30 + hrv(70%) 0.20*0.70 = 0.55 + 0.14 = 0.69
+        # Keep completed count negligible-but-counted: 10 completed → 10/300≈0.033
+        # adds 0.005 → 0.695, still < 0.70.
+        workouts = [_w(avg_power=200.0) for _ in range(10)]
+        recovery = [_r(hrv_ms=45.0) for _ in range(7)] + [
+            _r(hrv_ms=None) for _ in range(3)
+        ]
+        result = compute_richness(
+            workouts, recovery, date(2022, 1, 1), date(2024, 6, 1)
+        )
+        assert result.score < 0.70
+        assert result.label == "média"
+
+    def test_just_above_070_is_alta(self) -> None:
+        # history 0.25 + power(100%) 0.30 + hrv(80%) 0.20*0.80 = 0.55 + 0.16 = 0.71
+        workouts = [_w(avg_power=200.0) for _ in range(10)]
+        recovery = [_r(hrv_ms=45.0) for _ in range(8)] + [
+            _r(hrv_ms=None) for _ in range(2)
+        ]
+        result = compute_richness(
+            workouts, recovery, date(2022, 1, 1), date(2024, 6, 1)
+        )
+        assert result.score >= 0.70
+        assert result.label == "alta"
+
+
+# ---------------------------------------------------------------------------
+# Completed-workout count drives the workout component (fix 3)
+# ---------------------------------------------------------------------------
+
+
+class TestWorkoutCountUsesCompleted:
+    def test_non_completed_workouts_do_not_inflate_score(self) -> None:
+        """Many non-completed workouts must NOT raise the workout component.
+
+        Athlete A: 10 completed workouts (no other signal).
+        Athlete B: same 10 completed + 290 NON-completed workouts.
+        The workout component (and thus the score) must be IDENTICAL.
+        """
+        completed_only = [_w(avg_power=None, completed=True) for _ in range(10)]
+        with_noncompleted = completed_only + [
+            _w(avg_power=None, completed=False) for _ in range(290)
+        ]
+        result_a = compute_richness(completed_only, [], None, None)
+        result_b = compute_richness(with_noncompleted, [], None, None)
+        # Score identical — non-completed workouts ignored by the count component
+        assert result_b.score == pytest.approx(result_a.score)
+        # n_workouts still reports the TOTAL supplied
+        assert result_a.n_workouts == 10
+        assert result_b.n_workouts == 300
+
+    def test_completed_count_saturates_workout_component(self) -> None:
+        """300 completed workouts saturate the 0.15 workout component."""
+        workouts = [_w(avg_power=None, completed=True) for _ in range(300)]
+        result = compute_richness(workouts, [], None, None)
+        # Only the workout component is non-zero: 1.0 * 0.15 = 0.15
+        assert result.score == pytest.approx(0.15, abs=1e-4)

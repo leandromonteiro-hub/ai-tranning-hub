@@ -8,9 +8,14 @@ Weighted blend (score in 0..1)
   history_breadth  : 0.25  — years_covered capped at 2 years → 0..1
   pct_power        : 0.30  — fraction of completed workouts with avg_power (0..100) → 0..1
   pct_hrv          : 0.20  — fraction of recovery days with hrv_ms (0..100) → 0..1
-  workout_count    : 0.15  — n_workouts saturating at 300 → 0..1
+  workout_count    : 0.15  — COMPLETED-workout count saturating at 300 → 0..1
   pct_sleep        : 0.10  — fraction of recovery days with sleep_hours (0..100) → 0..1
   Total            : 1.00
+
+The workout-count component uses the COMPLETED-workout count (consistent with
+pct_power/pct_hr, which also use only completed workouts) so non-completed
+workouts cannot inflate the score.  The RichnessIndex.n_workouts field still
+reports the TOTAL number of workouts supplied.
 
 Caps / saturation
 -----------------
@@ -173,7 +178,9 @@ def compute_richness(
     history_component = min(years_covered / _HISTORY_CAP_YEARS, 1.0)
     power_component = pct_power / 100.0
     hrv_component = pct_hrv / 100.0
-    workout_component = min(n_workouts / _WORKOUT_COUNT_SAT, 1.0)
+    # Use the completed-workout count (not the total) so non-completed workouts
+    # cannot inflate the score, consistent with the pct_* metrics above.
+    workout_component = min(len(completed) / _WORKOUT_COUNT_SAT, 1.0)
     sleep_component = pct_sleep / 100.0
 
     score = (
