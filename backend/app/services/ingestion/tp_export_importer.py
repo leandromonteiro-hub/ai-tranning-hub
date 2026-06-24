@@ -283,6 +283,7 @@ async def _merge_csv_into_raw(
     workout_date: date,
     cross_key: tuple,
     source: str,
+    consumed_raw_ids: set[uuid.UUID],
 ) -> bool:
     """Merge a CSV summary into its matching raw-file workout (fill-if-missing).
 
@@ -292,8 +293,17 @@ async def _merge_csv_into_raw(
     raw row and enrich it, never overwriting an existing non-null raw value, so
     re-runs are idempotent.
 
-    Returns True if a matching raw workout was found (and enriched); False if
-    none matched (caller should fall through to normal persistence).
+    Target selection is DETERMINISTIC and 1:1 per run:
+      - candidate raw rows are ordered by ``id`` (stable across runs);
+      - we pick the first matching row whose id is NOT already in
+        ``consumed_raw_ids`` (i.e. not yet merged into THIS run), then add it to
+        the set. So two distinct same-bucket CSV summaries enrich two distinct
+        raw rows rather than both landing on the first.
+      - if every matching raw row is already consumed this run, we return False
+        (caller falls through to within-CSV dedup) rather than clobbering.
+
+    Returns True if a matching, unconsumed raw workout was found (and enriched);
+    False otherwise.
     """
     stmt = (
         select(WorkoutCompleted)
@@ -301,15 +311,19 @@ async def _merge_csv_into_raw(
         .where(WorkoutCompleted.athlete_id == athlete_id)
         .where(WorkoutCompleted.workout_date == workout_date)
         .where(WorkoutCompleted.source_file_id.is_not(None))
+        .order_by(WorkoutCompleted.id)
     )
     res = await session.execute(stmt)
     target: WorkoutCompleted | None = None
     for w in res.scalars().all():
+        if w.id in consumed_raw_ids:
+            continue
         if _cross_source_key(w.workout_date, w.duration_s) == cross_key:
             target = w
             break
     if target is None:
         return False
+    consumed_raw_ids.add(target.id)
 
     # Fill-if-missing scalar fields.
     if target.tss is None and act.source_tss is not None:
@@ -356,6 +370,7 @@ async def _persist_completed_csv(
     act,
     raw_file_keys: set[tuple],
     source: str,
+    consumed_raw_ids: set[uuid.UUID],
 ) -> str:
     """Persist a CSV-derived completed workout.
 
@@ -387,11 +402,12 @@ async def _persist_completed_csv(
     #     merge the CSV summary into it rather than dropping the summary fields.
     if cross_key in raw_file_keys:
         merged = await _merge_csv_into_raw(
-            session, athlete_id, act, workout_date, cross_key, source
+            session, athlete_id, act, workout_date, cross_key, source,
+            consumed_raw_ids,
         )
         if merged:
             return "merged"
-        # No raw row actually located (e.g. it was filtered) → fall through.
+        # No unconsumed raw row located → fall through to within-CSV dedup.
 
     # (b) Within-CSV dedup against already-persisted CSV-derived rows on the
     #     same date (exclude raw-file rows, which carry a source_file_id —
@@ -606,6 +622,9 @@ async def import_athlete_folder(
     # workouts, for CSV-vs-raw cross-dedup below (duration only, NO distance).
     raw_file_keys: set[tuple] = set()
     raw_files_total_created = 0
+    # Raw workout ids already consumed by a CSV merge THIS run, so two distinct
+    # same-bucket CSV summaries enrich two distinct raw rows (not both the first).
+    consumed_raw_ids: set[uuid.UUID] = set()
 
     for zip_path in file_zips:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -685,7 +704,8 @@ async def import_athlete_folder(
                     parsed_completed.append(act)
                     parsed_dates.append(act.started_at.date())
                     outcome = await _persist_completed_csv(
-                        session, ctx, athlete_id, act, raw_file_keys, source
+                        session, ctx, athlete_id, act, raw_file_keys, source,
+                        consumed_raw_ids,
                     )
                     if outcome == "inserted":
                         csv_completed_created += 1

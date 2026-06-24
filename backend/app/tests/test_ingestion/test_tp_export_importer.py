@@ -532,6 +532,122 @@ async def test_cross_source_merge_is_idempotent(db_session, tmp_path):
     assert report2.merged_from_csv == 1
 
 
+def _tcx_with_hr(hr1: int, hr2: int) -> bytes:
+    """A TCX (2026-01-11, 07:00→08:00 = 3600 s) with HR → produces a stream.
+    Distinct HR values give distinct bytes so content-hash dedup keeps both."""
+    return (
+        b"""<?xml version="1.0" encoding="UTF-8"?>
+<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+  <Activities>
+    <Activity Sport="Biking">
+      <Lap>
+        <Track>
+          <Trackpoint>
+            <Time>2026-01-11T07:00:00Z</Time>
+            <HeartRateBpm><Value>""" + str(hr1).encode() + b"""</Value></HeartRateBpm>
+            <AltitudeMeters>200</AltitudeMeters>
+          </Trackpoint>
+          <Trackpoint>
+            <Time>2026-01-11T08:00:00Z</Time>
+            <HeartRateBpm><Value>""" + str(hr2).encode() + b"""</Value></HeartRateBpm>
+            <AltitudeMeters>210</AltitudeMeters>
+          </Trackpoint>
+        </Track>
+      </Lap>
+    </Activity>
+  </Activities>
+</TrainingCenterDatabase>"""
+    )
+
+
+def _two_completed_csv_same_bucket() -> bytes:
+    """Two completed rows, SAME date + SAME duration bucket (1.0 h), with
+    DIFFERENT tss/coach_comments (and titles), each meant to merge into a
+    distinct raw-file workout."""
+    rows = [
+        {
+            "WorkoutDay": "2026-01-11",
+            "WorkoutType": "Bike",
+            "Title": "Session A",
+            "WorkoutDescription": "first",
+            "TimeTotalInHours": 1.0,
+            "TSS": 70.0,
+            "IF": 0.7,
+            "PowerAverage": 180.0,
+            "DistanceInMeters": 30000.0,
+            "HeartRateAverage": 130.0,
+            "CoachComments": "ride A coach note",
+            "PlannedDuration": None,
+        },
+        {
+            "WorkoutDay": "2026-01-11",
+            "WorkoutType": "Bike",
+            "Title": "Session B",
+            "WorkoutDescription": "second",
+            "TimeTotalInHours": 1.0,
+            "TSS": 95.0,
+            "IF": 0.8,
+            "PowerAverage": 200.0,
+            "DistanceInMeters": 35000.0,
+            "HeartRateAverage": 145.0,
+            "CoachComments": "ride B coach note",
+            "PlannedDuration": None,
+        },
+    ]
+    df = pd.DataFrame(rows)
+    buf = io.BytesIO()
+    df.to_csv(buf, index=False)
+    return buf.getvalue()
+
+
+async def test_two_same_bucket_summaries_merge_into_distinct_raw_rows(db_session, tmp_path):
+    """Two raw-file workouts on the SAME date + SAME duration bucket, plus two
+    matching CSV summaries with DIFFERENT tss/coach_comments → the summaries
+    merge into the TWO distinct raw rows (1:1), not both into the first.
+    Target selection is deterministic (ORDER BY id + consumed-id tracking)."""
+    from app.services.ingestion.tp_export_importer import import_athlete_folder
+    from sqlalchemy import select
+
+    session, athlete = db_session
+    ctx = TenantContext(athlete_id=athlete.id, tenant_id=athlete.tenant_id, role=Role.ATHLETE)
+
+    tp_dir = tmp_path / "TP-2026"
+    tp_dir.mkdir()
+    # Two raw TCX files: same date+duration, distinct bytes (different HR).
+    with zipfile.ZipFile(tp_dir / "WorkoutFileExport-2026.zip", "w") as zf:
+        zf.writestr("a1.tcx.gz", gzip.compress(_tcx_with_hr(120, 140)))
+        zf.writestr("a2.tcx.gz", gzip.compress(_tcx_with_hr(110, 150)))
+    # Two CSV summaries for the same session bucket, distinct tss/comments.
+    with zipfile.ZipFile(tp_dir / "WorkoutExport-2026.zip", "w") as zf:
+        zf.writestr("workouts.csv", _two_completed_csv_same_bucket())
+
+    report = await import_athlete_folder(session, ctx, athlete.id, tmp_path)
+    await session.flush()
+
+    rows = (await session.execute(
+        select(WorkoutCompleted).where(
+            WorkoutCompleted.athlete_id == athlete.id,
+            WorkoutCompleted.deleted_at.is_(None),
+        ).order_by(WorkoutCompleted.id)
+    )).scalars().all()
+
+    # Two raw rows survive (no new CSV rows created); both are raw-file rows.
+    assert len(rows) == 2, f"expected 2 raw rows, got {len(rows)}"
+    assert all(r.source_file_id is not None for r in rows)
+
+    # Each CSV summary merged into a DISTINCT raw row: the two distinct TSS
+    # values both appear, once each (not the same value on both).
+    tss_values = sorted(r.tss for r in rows)
+    assert tss_values == pytest.approx([70.0, 95.0]), f"tss not 1:1 distributed: {tss_values}"
+
+    coach_notes = sorted(r.extra.get("coach_comments") for r in rows)
+    assert coach_notes == ["ride A coach note", "ride B coach note"], coach_notes
+
+    # Both summaries were merges; neither inserted a new completed row.
+    assert report.merged_from_csv == 2
+    assert report.workouts_completed == 2  # the two raw-file rows
+
+
 async def test_two_distinct_rides_same_day_both_survive(db_session, tmp_path):
     """Two CSV rows, same date, same duration bucket, DIFFERENT distance →
     TWO WorkoutCompleted rows (the distance discriminator prevents collision)."""
