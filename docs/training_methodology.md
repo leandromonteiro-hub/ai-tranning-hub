@@ -141,4 +141,55 @@ A camada de IA usa estes conceitos como **referência** para interpretar dados d
 
 ---
 
+## 12. Fundamentação científica externa e requisitos de produto (prompt-02)
+
+Revisão de materiais externos para embasar a Training Intelligence Layer e, sobretudo, a **transição do treinamento humano para o treinamento via IA**. Avaliação crítica para o nosso caso (ciclismo/MTB, dados reais, 1 atleta inicialmente). Acesso verificado em 2026-06-24.
+
+### 12.1 Acceptance and trust in AI-generated exercise plans among recreational athletes
+Fonte: https://pmc.ncbi.nlm.nih.gov/articles/PMC11908068/ — **acessado com sucesso.** É o material **mais central** para nós, porque trata exatamente do que faz um atleta confiar num plano gerado por IA.
+
+**Principais achados:**
+- **A experiência de uso aumenta a confiança** (diferença significativa, p=0,030): quem já usou planos de IA confia mais que quem nunca usou. O ceticismo inicial é superado pelo uso real.
+- **Simplicidade e clareza geram confiança.** Treinadores preferiram o plano de IA por ser "mais fácil de entender" e "mais conciso". Clareza funciona como transparência de fato.
+- **Ambiguidade destrói confiança.** Oferecer múltiplas opções ("ou dia de descanso") confundiu os atletas sobre o que executar.
+- **Excesso de informação/volume aliena** o atleta recreativo; complexidade deve casar com o nível.
+- Validação por especialistas ("revisado por treinador") empresta credibilidade.
+
+**O que adotamos:**
+- **Uma ação recomendada por dia, não um menu.** Nossa recomendação diária já entrega UMA sessão; manter assim. As variações ("se mais cansado", "se menos tempo") devem ser apresentadas como *ajustes secundários da mesma sessão*, nunca como "faça A ou B" ambíguo. → requisito de UX abaixo.
+- **Explicabilidade como confiança:** continuar expondo objetivo fisiológico, relação com o bloco, evidência do próprio histórico e nível de confiança (já fazemos no recomendador). A camada de perfil/engenharia-reversa (Tarefa 2) reforça isso ao mostrar que o sistema "entende" o que vinha sendo feito.
+- **Divulgação progressiva:** resumo simples por padrão; justificativa/evidências/exportação atrás de expansores (o frontend já usa "Justificativa, evidências e ajustes" recolhível).
+- **Onboarding antes de prescrever:** a anamnese obrigatória (já implementada) garante que a dificuldade case com a capacidade — alinhado ao achado de "front-load fitness assessment".
+
+**O que descartamos / adaptamos:**
+- "Selos de revisão por treinador certificado" — não aplicável agora (estamos substituindo o treinador humano, não o mantendo no loop). Substituímos pelo **selo de confiança baseado em evidência do próprio histórico** + o "índice de riqueza de dados" (Tarefa 4): a credibilidade vem de o sistema demonstrar domínio dos dados do atleta, não de um aval externo.
+- "Complexidade adaptativa por nível de iniciante" — nosso público inicial é atleta treinado (não recreativo iniciante), então não simplificamos a fisiologia; mantemos a linguagem direta, mas sem reduzir o rigor.
+
+### 12.2 Towards an AI-Based Tailored Training Planning for Road Cyclists: A Case Study
+Fonte: https://www.mdpi.com/2076-3417/11/1/313 — **NÃO acessível via fetch (HTTP 403; MDPI bloqueia bots; DOI e Semantic Scholar também não retornaram o texto).** Para não fabricar método/validação, registramos apenas o que o título/escopo permitem e **não** citamos resultados específicos não verificados.
+
+**Observação honesta:** o conteúdo detalhado (features, modelagem, validação) não pôde ser extraído nesta sessão. Pelo título, é um estudo de caso (1 ciclista de estrada) de planejamento de treino individualizado por IA — coerente com a nossa abordagem de Digital Twin + Performance Management Chart (CTL/ATL/TSB), já fundamentada na Seção 5 deste documento.
+
+**O que adotamos:** nada novo derivado diretamente deste artigo (inacessível). Nossa modelagem de carga/forma já está embasada nas Seções 1–11.
+**Pendência:** reobter o PDF por uma rota autenticada/manual e revisitar; se trouxer features/validação aproveitáveis, atualizar esta subseção.
+
+### 12.3 AI Cycling Coach — Is It the Future of Training? (vídeo)
+Fonte: https://www.youtube.com/watch?v=deHrsG-En6w — **conteúdo não acessível via fetch** (a página retornou apenas navegação/rodapé do YouTube; sem transcrição). Registrado e seguido, conforme instrução do prompt.
+
+**Calibração de posicionamento (princípio, independente do vídeo):** posicionar o sistema como **apoio à decisão baseado no histórico real do atleta**, não como promessa de resultado. Evitar linguagem de garantia. Este princípio já está codificado na Tarefa 2 (relatório sem promessas) e nos guardrails.
+
+### 12.4 Requisitos de produto para as recomendações da IA (derivados de 12.1)
+
+Requisitos concretos de UX/design, para implementação na camada de recomendação e no frontend:
+
+1. **Ação única e inequívoca:** uma sessão recomendada por dia. Ajustes ("mais cansado" / "menos tempo") são modificadores da mesma sessão, com rótulo claro — nunca um "A ou B" que gere dúvida sobre o que executar.
+2. **Explicabilidade em camadas (divulgação progressiva):** topo = o quê + por quê em 1–2 frases + confiança; expansor = objetivo fisiológico, evidência do histórico, riscos, ajustes.
+3. **Evidência do próprio atleta como âncora de confiança:** toda recomendação cita dados reais do histórico do atleta (já feito); o perfil (Tarefa 2) é o "cartão de visitas" que demonstra entendimento antes de prescrever.
+4. **Transparência sobre incerteza:** expor o nível de confiança e o que falta (ex.: "sem HRV hoje") em vez de fingir certeza.
+5. **Sem promessa de resultado:** linguagem de apoio à decisão; nunca "isto vai te fazer ganhar".
+6. **Índice de riqueza de dados (Tarefa 4) visível:** calibrar e comunicar a confiança das recomendações conforme a completude do histórico (anos cobertos, % com potência, % com HRV).
+7. **Controle do usuário:** o atleta pode aceitar, ajustar ou rejeitar a recomendação e dar feedback (já existe o loop de feedback).
+
+---
+
 > **Lembrete final:** Este documento é referência conceitual e educacional. Não constitui prescrição individual e **nunca substitui a avaliação médica ou profissional** adequada ao atleta.
