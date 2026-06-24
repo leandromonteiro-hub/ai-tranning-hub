@@ -57,6 +57,7 @@ def _print_report(report: IngestionReport) -> None:
     print(f"  Rest days:           {report.rest_days}")
     print(f"  Recovery days:       {report.recovery_days}")
     print(f"  Subjective days:     {report.subjective_days}")
+    print(f"  Merged from CSV:     {report.merged_from_csv}")
     print(f"  Duplicates skipped:  {report.duplicates_skipped}")
     print()
     print(f"  Power coverage:      {report.pct_power:.1f}%")

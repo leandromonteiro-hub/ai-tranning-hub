@@ -10,22 +10,30 @@ Three independent dedup layers ensure a second run produces 0 new rows:
    finds the existing ``ImportedFile`` row and returns ``workouts_created=0``.
 
 2. **workouts.csv completed summaries** (NormalizedActivity from CSV):
-   Two distinct dedup keys are used (a CSV row is skipped if EITHER matches):
+   Two distinct dedup keys drive resolution:
 
    - **Cross-source key** ``(workout_date, duration_bucket)`` — duration only,
-     NO distance. Used to detect that a CSV summary's raw-file twin
-     (FIT/GPX/TCX) was already imported. Distance is intentionally excluded:
-     it is NOT stable across sources (GPS smoothing, TP rounding, FIT
-     total-vs-moving), so the same physical session can straddle a 500 m
-     bucket boundary and double-count. Date+duration is reliable.
+     NO distance. Detects that a CSV summary's raw-file twin (FIT/GPX/TCX) was
+     already imported. Distance is intentionally excluded: it is NOT stable
+     across sources (GPS smoothing, TP rounding, FIT total-vs-moving), so the
+     same physical session can straddle a 500 m bucket boundary and
+     double-count. Date+duration is reliable. When this key matches an existing
+     raw-file workout, the CSV summary is **MERGED** into that raw row
+     (fill-if-missing: TSS, IF, NP, notes, per-zone minutes, coach/athlete
+     comments, rpe, feeling, power_max, source) — keeping the ONE raw row with
+     its streams while recovering the rich TrainingPeaks summary fields. No new
+     row is created (counted as ``merged_from_csv``). Merge is idempotent: a
+     re-run never overwrites an existing non-null raw value.
    - **Within-CSV key** ``(workout_date, duration_bucket, distance_disc)`` where
      ``distance_disc = round(distance_m / 500)`` (500 m) when distance present,
      else the workout name. Used against already-persisted CSV-derived rows so
      two DISTINCT same-day, same-duration rides both survive, while re-running
-     the SAME CSV still dedups.
+     the SAME CSV still dedups (counted as ``duplicates_skipped``).
 
-   Raw-file cross-source keys are collected FIRST (raw files imported before the
-   workouts CSV), then each CSV completed row is filtered against them.
+   ``raw_file_keys`` is seeded with the cross-source keys of ALL already-persisted
+   raw-file workouts (``source_file_id IS NOT NULL``), not just the ones created
+   this run, so the merge/dedup fires on re-runs even though ``import_file``
+   content-hash-dedups the raw files (creating 0 new workouts the second time).
 
 3. **workouts.csv planned** (TpPlanned):
    Deduped by natural key ``(athlete_id, planned_date, name)``.
@@ -100,6 +108,8 @@ class IngestionReport:
     recovery_days: int = 0
     subjective_days: int = 0
     duplicates_skipped: int = 0
+    # CSV summaries merged into their raw-file twin (enriched, not new rows).
+    merged_from_csv: int = 0
 
     # Period covered (from PARSED file dates, stable across runs)
     period_start: date | None = None
@@ -266,6 +276,79 @@ async def _upsert_subjective(
         return True
 
 
+async def _merge_csv_into_raw(
+    session: AsyncSession,
+    athlete_id: uuid.UUID,
+    act,
+    workout_date: date,
+    cross_key: tuple,
+    source: str,
+) -> bool:
+    """Merge a CSV summary into its matching raw-file workout (fill-if-missing).
+
+    The CSV summary is the ONLY carrier of TrainingPeaks' TSS / IF / per-zone
+    minutes / coach+athlete comments; the raw-file workout has the streams but
+    none of those (no FTP at ingestion → TSS never computed). We keep the ONE
+    raw row and enrich it, never overwriting an existing non-null raw value, so
+    re-runs are idempotent.
+
+    Returns True if a matching raw workout was found (and enriched); False if
+    none matched (caller should fall through to normal persistence).
+    """
+    stmt = (
+        select(WorkoutCompleted)
+        .where(WorkoutCompleted.deleted_at.is_(None))
+        .where(WorkoutCompleted.athlete_id == athlete_id)
+        .where(WorkoutCompleted.workout_date == workout_date)
+        .where(WorkoutCompleted.source_file_id.is_not(None))
+    )
+    res = await session.execute(stmt)
+    target: WorkoutCompleted | None = None
+    for w in res.scalars().all():
+        if _cross_source_key(w.workout_date, w.duration_s) == cross_key:
+            target = w
+            break
+    if target is None:
+        return False
+
+    # Fill-if-missing scalar fields.
+    if target.tss is None and act.source_tss is not None:
+        target.tss = act.source_tss
+    if target.intensity_factor is None and act.source_if is not None:
+        target.intensity_factor = act.source_if
+    if target.normalized_power is None and act.source_np is not None:
+        target.normalized_power = act.source_np
+    if not target.notes and act.notes:
+        target.notes = act.notes
+
+    # Enrich extra (fill-if-missing): start from raw.extra, add CSV keys absent.
+    merged_extra = dict(target.extra) if target.extra else {}
+    csv_extra = act.extra or {}
+    for k in (
+        "pwr_zone_minutes",
+        "hr_zone_minutes",
+        "coach_comments",
+        "athlete_comments",
+        "rpe",
+        "feeling",
+        "power_max",
+    ):
+        if k not in merged_extra and k in csv_extra:
+            merged_extra[k] = csv_extra[k]
+    if "source" not in merged_extra:
+        merged_extra["source"] = source
+    # Reassign so SQLAlchemy detects the mutation on the JSON column.
+    target.extra = merged_extra
+
+    session.add(target)
+    await session.flush()
+    log.debug(
+        "csv_completed_merged_into_raw",
+        extra={"date": str(workout_date), "cross_key": str(cross_key)},
+    )
+    return True
+
+
 async def _persist_completed_csv(
     session: AsyncSession,
     ctx: TenantContext,
@@ -273,16 +356,24 @@ async def _persist_completed_csv(
     act,
     raw_file_keys: set[tuple],
     source: str,
-) -> bool:
-    """Persist a CSV-derived completed workout; return True if inserted.
+) -> str:
+    """Persist a CSV-derived completed workout.
 
-    A CSV completed row is skipped if EITHER:
-      (a) its CROSS-SOURCE key ``(date, duration_bucket)`` is in
-          ``raw_file_keys`` — its raw-file twin was already imported (prefer the
-          raw row which carries streams), OR
-      (b) its WITHIN-CSV key ``(date, duration_bucket, distance_disc)`` matches
-          an already-persisted CSV-derived row (re-run idempotency / true dup).
-    Otherwise the row is persisted.
+    Returns one of:
+      - ``"inserted"``  — a new WorkoutCompleted row was created.
+      - ``"merged"``    — the CSV summary was merged into its raw-file twin
+                          (cross-source key matched an existing raw workout);
+                          no new row created.
+      - ``"duplicate"`` — the within-CSV key matched an already-persisted
+                          CSV-derived row; nothing changed.
+
+    Resolution order:
+      (a) CROSS-SOURCE key ``(date, duration_bucket)`` in ``raw_file_keys`` →
+          MERGE the CSV summary (TSS/IF/zones/comments) into the raw-file
+          workout (which carries the streams) — keep ONE enriched row.
+      (b) WITHIN-CSV key ``(date, duration_bucket, distance_disc)`` matches an
+          already-persisted CSV-derived row → duplicate, skip.
+      else → insert a new row.
 
     Cross-source uses duration only (distance is not stable across sources);
     within-CSV adds a distance/name discriminator so two distinct same-day
@@ -292,13 +383,15 @@ async def _persist_completed_csv(
     cross_key = _cross_source_key(workout_date, act.duration_s)
     within_key = _within_csv_key(workout_date, act.duration_s, act.distance_m, act.name)
 
-    # (a) Cross-source dedup: a raw-file twin already covers (date, duration).
+    # (a) Cross-source: a raw-file twin already covers (date, duration) →
+    #     merge the CSV summary into it rather than dropping the summary fields.
     if cross_key in raw_file_keys:
-        log.debug(
-            "csv_completed_skipped_raw_file_covers",
-            extra={"date": str(workout_date), "cross_key": str(cross_key)},
+        merged = await _merge_csv_into_raw(
+            session, athlete_id, act, workout_date, cross_key, source
         )
-        return False
+        if merged:
+            return "merged"
+        # No raw row actually located (e.g. it was filtered) → fall through.
 
     # (b) Within-CSV dedup against already-persisted CSV-derived rows on the
     #     same date (exclude raw-file rows, which carry a source_file_id —
@@ -315,7 +408,7 @@ async def _persist_completed_csv(
     for ex in existing_on_date:
         ex_key = _within_csv_key(ex.workout_date, ex.duration_s, ex.distance_m, ex.name)
         if ex_key == within_key:
-            return False
+            return "duplicate"
 
     from app.repositories.metrics_repo import FtpRepository
     from app.services.metrics import tss_calculator
@@ -359,7 +452,7 @@ async def _persist_completed_csv(
         created_by=athlete_id,
     )
     await workout_repo.add(workout)
-    return True
+    return "inserted"
 
 
 async def _persist_planned(
@@ -429,10 +522,11 @@ async def import_athlete_folder(
     - metrics: upsert by (athlete_id, metric_date)
     - raw files: content-hash dedup via import_file
     - planned workouts: natural-key dedup by (athlete_id, planned_date, name)
-    - completed CSV workouts: skipped if EITHER its cross-source key
-      (workout_date, duration_bucket) matches an already-imported raw-file
-      workout, OR its within-CSV key (workout_date, duration_bucket,
-      distance_disc) matches an already-persisted CSV-derived workout
+    - completed CSV workouts: if its cross-source key (workout_date,
+      duration_bucket) matches an already-imported raw-file workout → MERGE the
+      CSV summary fields into that raw row (no new row); elif its within-CSV key
+      (workout_date, duration_bucket, distance_disc) matches an already-persisted
+      CSV-derived workout → skip; else insert a new row
 
     See ``IngestionReport`` for report-field semantics (counts = created this
     run; period & coverage = over this run's parsed dataset, stable across runs).
@@ -590,12 +684,14 @@ async def import_athlete_folder(
                 for act in completed_acts:
                     parsed_completed.append(act)
                     parsed_dates.append(act.started_at.date())
-                    inserted = await _persist_completed_csv(
+                    outcome = await _persist_completed_csv(
                         session, ctx, athlete_id, act, raw_file_keys, source
                     )
-                    if inserted:
+                    if outcome == "inserted":
                         csv_completed_created += 1
-                    else:
+                    elif outcome == "merged":
+                        report.merged_from_csv += 1
+                    else:  # "duplicate"
                         report.duplicates_skipped += 1
 
                 for tp in planned_acts:

@@ -342,98 +342,115 @@ async def test_report_coverage_fields(db_session, tmp_path):
 # Dedup behaviour (highest-value tests)
 # ---------------------------------------------------------------------------
 
-def _one_completed_csv(workout_day: str, distance_m, duration_h: float, title=None) -> bytes:
+def _one_completed_csv(
+    workout_day: str,
+    distance_m,
+    duration_h: float,
+    title=None,
+    tss: float = 55.0,
+    coach_comments=None,
+    pwr_zone2_min=None,
+) -> bytes:
     """A workouts.csv with a single completed Bike row.
 
     ``title`` defaults to None so that, with no distance, the natural-key
     distance discriminator falls back to an empty name — matching a raw
     activity file that carries no name (so the same session dedups).
+    Optional ``coach_comments`` / ``pwr_zone2_min`` populate the rich summary
+    fields used to verify cross-source MERGE.
     """
-    rows = [
-        {
-            "WorkoutDay": workout_day,
-            "WorkoutType": "Bike",
-            "Title": title,
-            "WorkoutDescription": "csv summary",
-            "TimeTotalInHours": duration_h,
-            "TSS": 55.0,
-            "IF": 0.7,
-            "PowerAverage": 180.0,
-            "DistanceInMeters": distance_m,
-            "HeartRateAverage": 130.0,
-            "PlannedDuration": None,
-        }
-    ]
-    df = pd.DataFrame(rows)
+    row = {
+        "WorkoutDay": workout_day,
+        "WorkoutType": "Bike",
+        "Title": title,
+        "WorkoutDescription": "csv summary",
+        "TimeTotalInHours": duration_h,
+        "TSS": tss,
+        "IF": 0.7,
+        "PowerAverage": 180.0,
+        "DistanceInMeters": distance_m,
+        "HeartRateAverage": 130.0,
+        "PlannedDuration": None,
+    }
+    if coach_comments is not None:
+        row["CoachComments"] = coach_comments
+    if pwr_zone2_min is not None:
+        row["PWRZone2Minutes"] = pwr_zone2_min
+    df = pd.DataFrame([row])
     buf = io.BytesIO()
     df.to_csv(buf, index=False)
     return buf.getvalue()
 
 
-# GPX carrying a real (gpxpy-computed) distance. Start 07:00 → 08:00 = 3600 s
-# (60-min bucket). The two widely-spaced points yield ~31.5 km. We use this to
-# prove cross-source dedup ignores distance: the matching CSV row deliberately
-# reports a distance in a DIFFERENT 500 m bucket, yet still dedups to the raw.
-_GPX_WITH_DISTANCE = b"""<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="test"
-     xmlns="http://www.topografix.com/GPX/1/1">
-  <trk>
-    <name>Long Ride</name>
-    <trkseg>
-      <trkpt lat="48.0" lon="16.0">
-        <ele>200</ele>
-        <time>2026-01-11T07:00:00Z</time>
-      </trkpt>
-      <trkpt lat="48.2" lon="16.3">
-        <ele>210</ele>
-        <time>2026-01-11T08:00:00Z</time>
-      </trkpt>
-    </trkseg>
-  </trk>
-</gpx>"""
+# TCX with HR → import_file creates a WorkoutStream (proves the merge keeps the
+# raw row's stream). TCX carries no distance, so the natural keys fall back to
+# name; the CSV row uses a DIFFERENT title, so only the duration-only
+# cross-source key can match — proving cross-source matching is distance/name
+# independent.
+_TCX_WITH_HR = b"""<?xml version="1.0" encoding="UTF-8"?>
+<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+  <Activities>
+    <Activity Sport="Biking">
+      <Lap>
+        <Track>
+          <Trackpoint>
+            <Time>2026-01-11T07:00:00Z</Time>
+            <HeartRateBpm><Value>120</Value></HeartRateBpm>
+            <AltitudeMeters>200</AltitudeMeters>
+          </Trackpoint>
+          <Trackpoint>
+            <Time>2026-01-11T08:00:00Z</Time>
+            <HeartRateBpm><Value>140</Value></HeartRateBpm>
+            <AltitudeMeters>210</AltitudeMeters>
+          </Trackpoint>
+        </Track>
+      </Lap>
+    </Activity>
+  </Activities>
+</TrainingCenterDatabase>"""
 
 
-async def test_cross_source_dedups_despite_distance_mismatch(db_session, tmp_path):
-    """Cross-source dedup uses duration only, NOT distance.
-
-    A raw GPX (carries a distance) AND a workouts.csv row for the SAME
-    date+duration but a SLIGHTLY DIFFERENT distance that straddles a 500 m
-    bucket boundary → exactly ONE WorkoutCompleted, the raw-file one
-    (identified by source_file_id). This proves the same physical session
-    dedups across sources even when their reported distances differ.
-    """
-    from app.services.ingestion.gpx_importer import parse_gpx
+async def _run_cross_source_merge(session, athlete, tmp_path):
+    """Build a folder where a raw TCX (HR → stream) and a workouts.csv row
+    describe the SAME session (same date+duration). The CSV carries
+    TSS/zone/comment fields and a DIFFERENT title; only the duration-only
+    cross-source key can match. Run the importer and return the report."""
+    from app.services.ingestion.tcx_importer import parse_tcx
     from app.services.ingestion.tp_export_importer import import_athlete_folder
-    from sqlalchemy import select
 
-    session, athlete = db_session
     ctx = TenantContext(athlete_id=athlete.id, tenant_id=athlete.tenant_id, role=Role.ATHLETE)
 
-    # Learn the raw file's date/duration/distance.
-    act = parse_gpx(_GPX_WITH_DISTANCE)[0]
+    act = parse_tcx(_TCX_WITH_HR)[0]
     raw_date = act.started_at.strftime("%Y-%m-%d")   # 2026-01-11
     raw_duration_h = act.duration_s / 3600.0         # 3600 s → 1.0 h
-    raw_distance = act.distance_m                     # ~31513 m
-
-    # CSV distance is pushed into a DIFFERENT 500 m bucket than the raw file:
-    # round(raw/500) != round(csv/500). +400 m guarantees a boundary crossing
-    # for the raw ~...13 m value while staying the same physical session.
-    csv_distance = raw_distance + 400.0
-    assert round(raw_distance / 500) != round(csv_distance / 500), (
-        "test setup: distances must fall in different 500 m buckets"
-    )
 
     tp_dir = tmp_path / "TP-2026"
-    tp_dir.mkdir()
+    if not tp_dir.exists():
+        tp_dir.mkdir()
     with zipfile.ZipFile(tp_dir / "WorkoutExport-2026.zip", "w") as zf:
         zf.writestr(
             "workouts.csv",
-            _one_completed_csv(raw_date, csv_distance, raw_duration_h, title="Long Ride"),
+            _one_completed_csv(
+                raw_date, 31000.0, raw_duration_h, title="CSV Summary Title",
+                tss=88.0, coach_comments="Z2 endurance", pwr_zone2_min=42.0,
+            ),
         )
     with zipfile.ZipFile(tp_dir / "WorkoutFileExport-2026.zip", "w") as zf:
-        zf.writestr("activity_20260111.gpx.gz", gzip.compress(_GPX_WITH_DISTANCE))
+        zf.writestr("activity_20260111.tcx.gz", gzip.compress(_TCX_WITH_HR))
 
-    await import_athlete_folder(session, ctx, athlete.id, tmp_path)
+    return await import_athlete_folder(session, ctx, athlete.id, tmp_path)
+
+
+async def test_cross_source_merges_csv_summary_into_raw(db_session, tmp_path):
+    """A raw GPX + a workouts.csv row for the SAME session → ONE WorkoutCompleted
+    (the raw one, with its stream), ENRICHED with the CSV's TSS / zone minutes /
+    coach comments. Cross-source matching is duration-only (distance differs)."""
+    from app.models.workout import WorkoutStream
+    from sqlalchemy import func, select
+
+    session, athlete = db_session
+
+    report = await _run_cross_source_merge(session, athlete, tmp_path)
     await session.flush()
 
     # Exactly ONE completed workout despite the distance mismatch.
@@ -443,10 +460,76 @@ async def test_cross_source_dedups_despite_distance_mismatch(db_session, tmp_pat
             WorkoutCompleted.deleted_at.is_(None),
         )
     )).scalars().all()
-    assert len(rows) == 1, f"expected 1 workout (cross-source dedup), got {len(rows)}"
+    assert len(rows) == 1, f"expected 1 workout (cross-source merge), got {len(rows)}"
 
-    # It is the raw-file one (linked to its ImportedFile via source_file_id).
-    assert rows[0].source_file_id is not None, "kept row is not the raw-file workout"
+    w = rows[0]
+    # It is the raw-file one (has its stream + source_file_id).
+    assert w.source_file_id is not None, "surviving row is not the raw-file workout"
+    stream_count = (await session.execute(
+        select(func.count()).select_from(WorkoutStream).where(
+            WorkoutStream.workout_id == w.id,
+        )
+    )).scalar()
+    assert stream_count >= 1, "merged row lost its raw stream"
+
+    # Enriched with the CSV summary fields (raw GPX had none of these).
+    assert w.tss == pytest.approx(88.0), f"TSS not merged: {w.tss}"
+    assert w.extra is not None
+    assert w.extra.get("coach_comments") == "Z2 endurance"
+    pwr = w.extra.get("pwr_zone_minutes")
+    assert pwr is not None and pwr[1] == pytest.approx(42.0), f"zone minutes not merged: {pwr}"
+
+    # Report: one merge, zero new CSV-completed inserts for that session.
+    assert report.merged_from_csv == 1
+
+
+async def test_cross_source_merge_is_idempotent(db_session, tmp_path):
+    """A second import keeps ONE row and does not clobber the merged values."""
+    from sqlalchemy import func, select
+
+    session, athlete = db_session
+
+    # First run: GPX raw + CSV summary → merged into one enriched row.
+    await _run_cross_source_merge(session, athlete, tmp_path)
+    await session.flush()
+
+    count1 = (await session.execute(
+        select(func.count()).select_from(WorkoutCompleted).where(
+            WorkoutCompleted.athlete_id == athlete.id,
+            WorkoutCompleted.deleted_at.is_(None),
+        )
+    )).scalar()
+    w1 = (await session.execute(
+        select(WorkoutCompleted).where(
+            WorkoutCompleted.athlete_id == athlete.id,
+            WorkoutCompleted.deleted_at.is_(None),
+        )
+    )).scalars().one()
+    tss1, coach1 = w1.tss, w1.extra.get("coach_comments")
+
+    # Second run on the same folder.
+    report2 = await _run_cross_source_merge(session, athlete, tmp_path)
+    await session.flush()
+
+    count2 = (await session.execute(
+        select(func.count()).select_from(WorkoutCompleted).where(
+            WorkoutCompleted.athlete_id == athlete.id,
+            WorkoutCompleted.deleted_at.is_(None),
+        )
+    )).scalar()
+    w2 = (await session.execute(
+        select(WorkoutCompleted).where(
+            WorkoutCompleted.athlete_id == athlete.id,
+            WorkoutCompleted.deleted_at.is_(None),
+        )
+    )).scalars().one()
+
+    assert count2 == count1 == 1, f"row count changed: {count1} -> {count2}"
+    # Merged values unchanged (fill-if-missing never clobbers).
+    assert w2.tss == pytest.approx(tss1)
+    assert w2.extra.get("coach_comments") == coach1
+    # The re-run re-merges (idempotent), so it is counted as a merge again.
+    assert report2.merged_from_csv == 1
 
 
 async def test_two_distinct_rides_same_day_both_survive(db_session, tmp_path):
