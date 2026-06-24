@@ -3,7 +3,13 @@ import { resolveApiUrl } from "@/lib/config";
 import { decodeJwtRole, TOKEN_COOKIE } from "@/lib/session";
 
 export async function POST(request: Request) {
-  const { email, password } = await request.json();
+  let email: string | undefined;
+  let password: string | undefined;
+  try {
+    ({ email, password } = await request.json());
+  } catch {
+    return NextResponse.json({ error: "Corpo inválido" }, { status: 400 });
+  }
   const body = new URLSearchParams({ username: email ?? "", password: password ?? "" });
 
   const res = await fetch(resolveApiUrl("auth/login"), {
@@ -16,7 +22,7 @@ export async function POST(request: Request) {
   }
 
   const { access_token } = await res.json();
-  const response = NextResponse.json({ ok: true, role: decodeJwtRole(access_token) });
+  const response = NextResponse.json({ ok: true, role: decodeJwtRole(access_token) ?? null });
   response.cookies.set(TOKEN_COOKIE, access_token, {
     httpOnly: true,
     sameSite: "lax",
