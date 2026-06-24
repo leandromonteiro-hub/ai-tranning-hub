@@ -22,12 +22,15 @@ classification on weekly aggregates:
 
 1. Weekly TSS is computed from daily_tss per ISO-week bucket.
 2. 4-week rolling CTL slope is computed for each week.
-3. Classification (first match wins per week; weeks then merged into blocks):
+3. Classification (first match wins per week; weeks then merged into blocks).
+   TAPER is evaluated BEFORE RECOVERY so a deliberate pre-race taper (CTL near
+   peak, TSB rising, gentle CTL decline) is not mis-labelled as recovery:
+   - TAPER     : TSB rising strongly (last_tsb - first_tsb > 2) AND
+                  weekly TSS < TAPER_TSS_THRESHOLD (< 400 TSS/week) AND
+                  week-start CTL at or near peak (>= TAPER_CTL_NEAR_PEAK % of
+                  max CTL seen) AND CTL ramp vs prev week >= -3.5 (gentle decline)
    - RECOVERY  : weekly TSS < RECOVERY_TSS_THRESHOLD (< 200 TSS/week) OR
                   CTL ramp rate < RECOVERY_RAMP_THRESHOLD (< -1.5 CTL/week)
-   - TAPER     : TSB is rising (positive TSB trend over 5+ days) AND
-                  weekly TSS < TAPER_TSS_THRESHOLD (< 400 TSS/week) AND
-                  CTL is at or near peak (within TAPER_CTL_NEAR_PEAK % of max CTL seen)
    - PEAK      : CTL is at the highest point in the series (local maximum) AND
                   weekly TSS >= TAPER_TSS_THRESHOLD
    - BUILD     : CTL ramp rate >= BUILD_RAMP_THRESHOLD (>= 0.7 CTL/week) AND
@@ -41,10 +44,16 @@ Evidence cites the CTL range, date range, and mean weekly TSS for the block.
 detect_races
 ~~~~~~~~~~~~
 A workout is flagged as a race if ANY of the following is true:
-1. workout_type == 'RACE' (or WorkoutType.RACE enum value)
+1. workout_type == 'RACE' (or WorkoutType.RACE enum value) — primary catch.
 2. Name (case-insensitive) contains any of:
-   prova, race, maratona, xco, xcm, cup, copa, gp, campeonato
-3. TSS >= RACE_TSS_SPIKE (280 TSS) AND intensity_factor >= RACE_IF_SPIKE (0.88)
+   prova, race, maratona, xco, xcm, cup, copa, gp, campeonato — primary catch.
+3. (Fallback) TSS spike RELATIVE to this athlete's own workouts AND a high IF.
+   The threshold is self-contained: derived from the workout list itself as
+   ``tss_threshold = max(percentile_90(completed_workout_tss), 150.0)`` and the
+   IF gate is ``intensity_factor >= RACE_IF_SPIKE (0.85)``.  This avoids missing
+   short, high-intensity MTB/XCO races (TSS often only ~100-150) that an
+   absolute spike threshold would skip, while still excluding ordinary hard
+   training days.
 
 Evidence cites the reason (enum type / keyword matched / tss+IF values).
 Deduplication: one Race per date (earliest matching workout wins).
@@ -166,8 +175,12 @@ _BASE_RAMP_THRESHOLD = 0.2            # CTL/week slope at or above this → base
 _RACE_KEYWORDS = {
     "prova", "race", "maratona", "xco", "xcm", "cup", "copa", "gp", "campeonato"
 }
-_RACE_TSS_SPIKE = 280.0
-_RACE_IF_SPIKE = 0.88
+# Rule 3 (fallback) uses a RELATIVE TSS threshold derived from the workout list
+# itself: max(p90 of completed-workout TSS, _RACE_TSS_SPIKE_FLOOR).  The IF gate
+# stays absolute.
+_RACE_TSS_SPIKE_FLOOR = 150.0   # never go below this even for low-volume athletes
+_RACE_TSS_PERCENTILE = 90       # percentile of the athlete's own TSS distribution
+_RACE_IF_SPIKE = 0.85
 
 # taper_windows
 _TAPER_LOOKBACK_DAYS = 21
@@ -183,7 +196,7 @@ _PORTUGUESE_STOPWORDS: frozenset[str] = frozenset({
     "se", "por", "ao", "aos", "sua", "seu", "seus", "suas",
     "ou", "mas", "mais", "já", "ja", "bem", "bom", "ser",
     "foi", "não", "nao", "ele", "ela", "eles", "elas",
-    "esse", "essa", "esse", "isso", "isto", "aqui",
+    "esse", "essa", "isso", "isto", "aqui",
     "muito", "pouco", "hoje", "ontem", "amanha",
     "treino", "treinar",  # too generic for methodology
     "dia", "semana", "mes",
@@ -281,15 +294,12 @@ def _classify_week(
     # Normalise to 7-day equivalent
     weekly_tss_normalised = weekly_tss * (7 / n_days)
 
-    ctl_ramp = week["last_ctl"] - week["first_ctl"]  # CTL change within the week
-
-    # Also compute ramp vs previous week's last CTL
+    # CTL ramp vs the previous week's last CTL (falls back to the within-week
+    # change for the first week, which has no predecessor).
     if prev_week is not None:
         ctl_ramp_vs_prev = week["last_ctl"] - prev_week["last_ctl"]
     else:
-        ctl_ramp_vs_prev = ctl_ramp
-
-    tsb_rising = week["last_tsb"] > week["first_tsb"]
+        ctl_ramp_vs_prev = week["last_ctl"] - week["first_ctl"]
 
     # --- TAPER: TSB improving strongly, moderate-low TSS, CTL was near peak ---
     # Check BEFORE recovery so that a planned taper (CTL near peak, TSB rising)
@@ -412,6 +422,40 @@ def detect_blocks(load_metrics: list[Any]) -> list[Block]:
     return blocks
 
 
+def _percentile(values: list[float], pct: float) -> float:
+    """Return the ``pct``-th percentile of *values* (linear interpolation).
+
+    ``pct`` is in [0, 100].  Empty input returns 0.0.  Implemented locally to
+    avoid a numpy dependency for this single use.
+    """
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    rank = (pct / 100.0) * (len(ordered) - 1)
+    lo = int(rank)
+    hi = min(lo + 1, len(ordered) - 1)
+    frac = rank - lo
+    return ordered[lo] + (ordered[hi] - ordered[lo]) * frac
+
+
+def _relative_tss_threshold(workouts: list[Any]) -> float:
+    """Compute the Rule-3 TSS threshold from the workout list itself.
+
+    ``max(p90(positive workout TSS), _RACE_TSS_SPIKE_FLOOR)``.  Only positive
+    TSS values count toward the percentile so that rest/zero-TSS days do not
+    deflate it.  When there is no usable TSS data the floor is returned.
+    """
+    tss_values = [
+        float(getattr(w, "tss", None) or 0.0)
+        for w in workouts
+        if (getattr(w, "tss", None) or 0.0) > 0
+    ]
+    p90 = _percentile(tss_values, _RACE_TSS_PERCENTILE)
+    return max(p90, _RACE_TSS_SPIKE_FLOOR)
+
+
 def detect_races(workouts: list[Any]) -> list[Race]:
     """Detect race events from a list of workout objects.
 
@@ -430,11 +474,15 @@ def detect_races(workouts: list[Any]) -> list[Race]:
 
     Detection rules (first match wins for evidence label; date-deduplicated)
     -----------------------------------------------------------------------
-    1. workout_type == 'RACE' or WorkoutType.RACE
-    2. Name contains race keyword (case-insensitive)
-    3. TSS >= 280 AND IF >= 0.88
+    1. workout_type == 'RACE' or WorkoutType.RACE  (primary)
+    2. Name contains race keyword (case-insensitive)  (primary)
+    3. (Fallback) TSS >= relative threshold AND IF >= 0.85, where the threshold
+       is ``max(p90(workout_tss), 150.0)`` computed from this workout list.
     """
     seen_dates: dict[date, Race] = {}
+
+    # Rule-3 relative threshold, self-contained from the workout list itself.
+    tss_threshold = _relative_tss_threshold(workouts)
 
     for w in workouts:
         d = w.workout_date
@@ -465,10 +513,10 @@ def detect_races(workouts: list[Any]) -> list[Race]:
                     evidence = f"keyword:{kw} em nome='{name}' (tss={tss:.0f})"
                     break
 
-        # Rule 3: TSS/IF spike
-        if evidence is None and tss >= _RACE_TSS_SPIKE and if_val >= _RACE_IF_SPIKE:
+        # Rule 3 (fallback): relative TSS spike + high IF
+        if evidence is None and tss >= tss_threshold and if_val >= _RACE_IF_SPIKE:
             evidence = (
-                f"tss_spike:tss={tss:.0f}>={_RACE_TSS_SPIKE:.0f}, "
+                f"tss_spike:tss={tss:.0f}>={tss_threshold:.0f} (p{_RACE_TSS_PERCENTILE} relativo), "
                 f"if={if_val:.2f}>={_RACE_IF_SPIKE:.2f}"
             )
 

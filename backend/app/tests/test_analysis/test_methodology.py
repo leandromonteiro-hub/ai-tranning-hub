@@ -116,9 +116,7 @@ class TestDetectBlocks:
                             ctl_delta_per_day=0.5, daily_tss=50.0)
         result = detect_blocks(metrics)
         block_types = [b.block_type for b in result]
-        assert "base" in block_types or "build" in block_types, (
-            f"Expected base or build block; got {block_types}"
-        )
+        assert "base" in block_types, f"Expected base block; got {block_types}"
 
     def test_detect_build_block_from_sustained_ctl_rise(self) -> None:
         """A sustained CTL ramp (+1.0/day, ~600 TSS/week) → build block."""
@@ -193,8 +191,9 @@ class TestDetectBlocks:
                 f"Block {i}: start {block.start} > end {block.end}"
             )
             if i > 0:
-                assert result[i].start > result[i - 1].end or (
-                    result[i].start >= result[i - 1].start
+                assert result[i].start > result[i - 1].end, (
+                    f"Block {i} starts at {result[i].start} which overlaps the "
+                    f"previous block ending at {result[i - 1].end}"
                 )
 
     def test_block_type_values_are_valid(self) -> None:
@@ -284,14 +283,74 @@ class TestDetectRaces:
         result = detect_races(workouts)
         assert len(result) == 1
 
-    def test_detects_by_tss_spike(self) -> None:
-        """A workout with TSS >> typical level (spike) should be flagged."""
-        # Normal training: TSS around 80; spike to 300 → race-level effort
-        workouts = [_make_workout(date(2024, 10, 5), name="Domingo duro",
-                                  workout_type="THRESHOLD", tss=320.0,
-                                  intensity_factor=0.95)]
-        result = detect_races(workouts)
-        assert len(result) == 1
+    def test_detects_by_relative_tss_spike(self) -> None:
+        """A workout clearly above the athlete's own p90 TSS + high IF is flagged."""
+        # Background of ordinary training around TSS 60-90, then one hard day.
+        background = [
+            _make_workout(date(2024, 10, 1) + timedelta(days=i),
+                          name="Treino", workout_type="ENDURANCE",
+                          tss=70.0, intensity_factor=0.70)
+            for i in range(20)
+        ]
+        spike = _make_workout(date(2024, 10, 25), name="Domingo duro",
+                              workout_type="THRESHOLD", tss=300.0,
+                              intensity_factor=0.95)
+        result = detect_races(background + [spike])
+        race_dates = [r.date for r in result]
+        assert date(2024, 10, 25) in race_dates, (
+            f"Expected the spike day to be flagged; got {race_dates}"
+        )
+
+    def test_relative_threshold_short_mtb_race_with_high_if(self) -> None:
+        """A short MTB/XCO race (TSS ~140) at very high IF beats the 150 floor when p90 is low."""
+        # Low-volume athlete: most rides TSS ~50; p90 well below floor of 150.
+        background = [
+            _make_workout(date(2024, 11, 1) + timedelta(days=i),
+                          name="Pedal leve", workout_type="ENDURANCE",
+                          tss=50.0, intensity_factor=0.65)
+            for i in range(15)
+        ]
+        # 155 TSS just above the 150 floor, high IF → flagged by Rule 3.
+        race = _make_workout(date(2024, 11, 20), name="domingo",
+                             workout_type="ENDURANCE", tss=155.0,
+                             intensity_factor=0.92)
+        result = detect_races(background + [race])
+        assert date(2024, 11, 20) in [r.date for r in result]
+
+    def test_workout_just_below_relative_threshold_not_flagged_by_rule3(self) -> None:
+        """A high-IF workout just BELOW the derived threshold is NOT a Rule-3 race."""
+        # Background with high TSS pushes p90 up to ~200.
+        background = [
+            _make_workout(date(2024, 12, 1) + timedelta(days=i),
+                          name="Bloco forte", workout_type="THRESHOLD",
+                          tss=200.0, intensity_factor=0.80)
+            for i in range(20)
+        ]
+        # Threshold = max(p90≈200, 150) ≈ 200. A 180-TSS high-IF day is below it.
+        below = _make_workout(date(2024, 12, 25), name="treino puxado",
+                              workout_type="THRESHOLD", tss=180.0,
+                              intensity_factor=0.93)
+        result = detect_races(background + [below])
+        assert date(2024, 12, 25) not in [r.date for r in result], (
+            "A workout below the relative threshold must not be flagged by Rule 3"
+        )
+
+    def test_high_tss_low_if_not_flagged_by_rule3(self) -> None:
+        """A long low-intensity ride (high TSS, low IF) is NOT a race via Rule 3."""
+        background = [
+            _make_workout(date(2025, 1, 1) + timedelta(days=i),
+                          name="Treino", workout_type="ENDURANCE",
+                          tss=60.0, intensity_factor=0.68)
+            for i in range(15)
+        ]
+        # High TSS from sheer duration but low IF → IF gate excludes it.
+        long_ride = _make_workout(date(2025, 1, 20), name="longao",
+                                  workout_type="ENDURANCE", tss=350.0,
+                                  intensity_factor=0.62)
+        result = detect_races(background + [long_ride])
+        assert date(2025, 1, 20) not in [r.date for r in result], (
+            "Low-IF endurance volume must not trip the Rule-3 IF gate"
+        )
 
     def test_normal_workout_not_flagged(self) -> None:
         """Regular endurance workouts should NOT be detected as races."""
