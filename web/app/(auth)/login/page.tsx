@@ -15,6 +15,7 @@ export default function LoginPage() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
     setError("");
     const res = await fetch("/api/auth/login", {
