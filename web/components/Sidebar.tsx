@@ -60,12 +60,13 @@ export function Sidebar({
   const { theme, toggleTheme } = useTheme();
 
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
+    try { await fetch("/api/auth/logout", { method: "POST" }); } catch {}
     window.location.href = "/login";
   }
 
   const renderItem = (item: NavItem) => {
-    const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+    const active =
+      item.href === "/" ? pathname === "/" : pathname === item.href || pathname.startsWith(item.href + "/");
     const Icon = item.icon;
     return (
       <Link
