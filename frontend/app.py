@@ -23,7 +23,10 @@ def api(method: str, path: str, token: str | None = None, **kwargs) -> httpx.Res
     headers = kwargs.pop("headers", {})
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    return httpx.request(method, f"{API}{path}", headers=headers, timeout=30, **kwargs)
+    # Real LLM recommendations (claude-opus) can take ~30-35s; keep the client
+    # timeout well above that so the UI doesn't fail a request the API completes.
+    timeout = kwargs.pop("timeout", 120)
+    return httpx.request(method, f"{API}{path}", headers=headers, timeout=timeout, **kwargs)
 
 
 def login_view() -> None:
