@@ -354,85 +354,83 @@ def _one_completed_csv(workout_day: str, distance_m, duration_h: float, title=No
     return buf.getvalue()
 
 
-# TCX with HR → produces an hr_stream → import_file creates a WorkoutStream.
-# Start 07:00 → 08:00 = 3600 s (60-min bucket). No distance → key falls back
-# to the workout name, so the matching CSV row uses the same Title.
-_MINIMAL_TCX = b"""<?xml version="1.0" encoding="UTF-8"?>
-<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
-  <Activities>
-    <Activity Sport="Biking">
-      <Lap>
-        <Track>
-          <Trackpoint>
-            <Time>2026-01-11T07:00:00Z</Time>
-            <HeartRateBpm><Value>120</Value></HeartRateBpm>
-            <AltitudeMeters>200</AltitudeMeters>
-          </Trackpoint>
-          <Trackpoint>
-            <Time>2026-01-11T08:00:00Z</Time>
-            <HeartRateBpm><Value>140</Value></HeartRateBpm>
-            <AltitudeMeters>210</AltitudeMeters>
-          </Trackpoint>
-        </Track>
-      </Lap>
-    </Activity>
-  </Activities>
-</TrainingCenterDatabase>"""
+# GPX carrying a real (gpxpy-computed) distance. Start 07:00 → 08:00 = 3600 s
+# (60-min bucket). The two widely-spaced points yield ~31.5 km. We use this to
+# prove cross-source dedup ignores distance: the matching CSV row deliberately
+# reports a distance in a DIFFERENT 500 m bucket, yet still dedups to the raw.
+_GPX_WITH_DISTANCE = b"""<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="test"
+     xmlns="http://www.topografix.com/GPX/1/1">
+  <trk>
+    <name>Long Ride</name>
+    <trkseg>
+      <trkpt lat="48.0" lon="16.0">
+        <ele>200</ele>
+        <time>2026-01-11T07:00:00Z</time>
+      </trkpt>
+      <trkpt lat="48.2" lon="16.3">
+        <ele>210</ele>
+        <time>2026-01-11T08:00:00Z</time>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>"""
 
 
-async def test_cross_source_same_session_dedups_to_raw_file(db_session, tmp_path):
-    """A CSV summary AND a raw file for the SAME natural key →
-    exactly ONE WorkoutCompleted, and it's the raw-file one (streams + source_file_id)."""
-    from app.services.ingestion.tcx_importer import parse_tcx
+async def test_cross_source_dedups_despite_distance_mismatch(db_session, tmp_path):
+    """Cross-source dedup uses duration only, NOT distance.
+
+    A raw GPX (carries a distance) AND a workouts.csv row for the SAME
+    date+duration but a SLIGHTLY DIFFERENT distance that straddles a 500 m
+    bucket boundary → exactly ONE WorkoutCompleted, the raw-file one
+    (identified by source_file_id). This proves the same physical session
+    dedups across sources even when their reported distances differ.
+    """
+    from app.services.ingestion.gpx_importer import parse_gpx
     from app.services.ingestion.tp_export_importer import import_athlete_folder
-    from app.models.workout import WorkoutStream
-    from sqlalchemy import func, select
+    from sqlalchemy import select
 
     session, athlete = db_session
     ctx = TenantContext(athlete_id=athlete.id, tenant_id=athlete.tenant_id, role=Role.ATHLETE)
 
-    # Parse the TCX standalone to learn its date/duration so the CSV row can be
-    # made to MATCH the same natural key. TCX has no distance → key uses name,
-    # so the CSV Title must equal the (None) name → both use name "Summary Ride"?
-    # The raw activity has no name; its key uses ("" fallback). To collide, the
-    # CSV row must also resolve distance→None and name→"" (empty Title).
-    act = parse_tcx(_MINIMAL_TCX)[0]
+    # Learn the raw file's date/duration/distance.
+    act = parse_gpx(_GPX_WITH_DISTANCE)[0]
     raw_date = act.started_at.strftime("%Y-%m-%d")   # 2026-01-11
     raw_duration_h = act.duration_s / 3600.0         # 3600 s → 1.0 h
+    raw_distance = act.distance_m                     # ~31513 m
+
+    # CSV distance is pushed into a DIFFERENT 500 m bucket than the raw file:
+    # round(raw/500) != round(csv/500). +400 m guarantees a boundary crossing
+    # for the raw ~...13 m value while staying the same physical session.
+    csv_distance = raw_distance + 400.0
+    assert round(raw_distance / 500) != round(csv_distance / 500), (
+        "test setup: distances must fall in different 500 m buckets"
+    )
 
     tp_dir = tmp_path / "TP-2026"
     tp_dir.mkdir()
-    # CSV completed row matching the raw file: same date, same duration bucket,
-    # no distance, no title → same key ("", duration_bucket) as the raw row.
     with zipfile.ZipFile(tp_dir / "WorkoutExport-2026.zip", "w") as zf:
         zf.writestr(
             "workouts.csv",
-            _one_completed_csv(raw_date, None, raw_duration_h),
+            _one_completed_csv(raw_date, csv_distance, raw_duration_h, title="Long Ride"),
         )
     with zipfile.ZipFile(tp_dir / "WorkoutFileExport-2026.zip", "w") as zf:
-        zf.writestr("activity_20260111.tcx.gz", gzip.compress(_MINIMAL_TCX))
+        zf.writestr("activity_20260111.gpx.gz", gzip.compress(_GPX_WITH_DISTANCE))
 
     await import_athlete_folder(session, ctx, athlete.id, tmp_path)
     await session.flush()
 
-    # Exactly ONE completed workout for that date
+    # Exactly ONE completed workout despite the distance mismatch.
     rows = (await session.execute(
         select(WorkoutCompleted).where(
             WorkoutCompleted.athlete_id == athlete.id,
             WorkoutCompleted.deleted_at.is_(None),
         )
     )).scalars().all()
-    assert len(rows) == 1, f"expected 1 workout, got {len(rows)}"
+    assert len(rows) == 1, f"expected 1 workout (cross-source dedup), got {len(rows)}"
 
-    # It must be the raw-file one: has a source_file_id and a stream row.
-    w = rows[0]
-    assert w.source_file_id is not None, "kept row is not the raw-file workout"
-    stream_count = (await session.execute(
-        select(func.count()).select_from(WorkoutStream).where(
-            WorkoutStream.workout_id == w.id,
-        )
-    )).scalar()
-    assert stream_count >= 1, "raw-file workout has no stream"
+    # It is the raw-file one (linked to its ImportedFile via source_file_id).
+    assert rows[0].source_file_id is not None, "kept row is not the raw-file workout"
 
 
 async def test_two_distinct_rides_same_day_both_survive(db_session, tmp_path):

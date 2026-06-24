@@ -10,17 +10,22 @@ Three independent dedup layers ensure a second run produces 0 new rows:
    finds the existing ``ImportedFile`` row and returns ``workouts_created=0``.
 
 2. **workouts.csv completed summaries** (NormalizedActivity from CSV):
-   Deduped by natural key ``(workout_date, duration_bucket, distance_bucket)``
-   where ``duration_bucket = round(duration_s / 60)`` (1-minute precision) and
-   ``distance_bucket = round(distance_m / 500)`` (500 m precision) when distance
-   is present, else falls back to the workout name. The distance/name
-   discriminator prevents two distinct rides on the same day with a similar
-   duration from colliding, while the SAME session across sources still dedups.
-   On a second run we query for an existing row before inserting.
-   **Cross-dedup**: if a raw-file workout already covers the same key, we skip
-   the CSV summary entirely (prefer the raw-file row since it carries streams).
-   This is implemented by collecting raw-file workout keys FIRST, then filtering
-   CSV completed.
+   Two distinct dedup keys are used (a CSV row is skipped if EITHER matches):
+
+   - **Cross-source key** ``(workout_date, duration_bucket)`` — duration only,
+     NO distance. Used to detect that a CSV summary's raw-file twin
+     (FIT/GPX/TCX) was already imported. Distance is intentionally excluded:
+     it is NOT stable across sources (GPS smoothing, TP rounding, FIT
+     total-vs-moving), so the same physical session can straddle a 500 m
+     bucket boundary and double-count. Date+duration is reliable.
+   - **Within-CSV key** ``(workout_date, duration_bucket, distance_disc)`` where
+     ``distance_disc = round(distance_m / 500)`` (500 m) when distance present,
+     else the workout name. Used against already-persisted CSV-derived rows so
+     two DISTINCT same-day, same-duration rides both survive, while re-running
+     the SAME CSV still dedups.
+
+   Raw-file cross-source keys are collected FIRST (raw files imported before the
+   workouts CSV), then each CSV completed row is filtered against them.
 
 3. **workouts.csv planned** (TpPlanned):
    Deduped by natural key ``(athlete_id, planned_date, name)``.
@@ -122,25 +127,41 @@ def _bucket(duration_s: int | None) -> int | None:
 
 
 def _distance_disc(distance_m: float | None, name: str | None) -> object:
-    """Distance discriminator for the completed natural key.
+    """Distance discriminator for the WITHIN-CSV natural key.
 
     Returns ``round(distance_m / 500)`` (500 m buckets) when distance is
     present, else falls back to the workout name (or "" when both absent).
-    This keeps two distinct rides on the same day with a similar duration
-    from colliding, while the SAME session across sources still dedups.
+    This keeps two DISTINCT rides on the same day with a similar duration from
+    colliding (so both survive within the CSV).
     """
     if distance_m is not None:
         return round(distance_m / 500)
     return name or ""
 
 
-def _completed_key(
+def _cross_source_key(workout_date: date, duration_s: int | None) -> tuple:
+    """CSV-row vs RAW-FILE-workout dedup key: ``(date, duration_bucket)``.
+
+    Duration only — NO distance. The same physical session reliably shares
+    date+duration across sources, but distance is NOT stable across sources
+    (GPS smoothing, TP rounding, FIT total-vs-moving), so including distance
+    here would let a CSV summary and its raw-file twin straddle a bucket
+    boundary and double-count.
+    """
+    return (workout_date, _bucket(duration_s))
+
+
+def _within_csv_key(
     workout_date: date,
     duration_s: int | None,
     distance_m: float | None,
     name: str | None,
 ) -> tuple:
-    """Natural key for a completed workout: (date, duration_bucket, distance_disc)."""
+    """CSV-row vs already-persisted CSV-derived-row dedup key.
+
+    ``(date, duration_bucket, distance_disc)`` — keeps two distinct same-day,
+    same-duration rides both alive while a re-run of the SAME CSV still dedups.
+    """
     return (workout_date, _bucket(duration_s), _distance_disc(distance_m, name))
 
 
@@ -255,34 +276,45 @@ async def _persist_completed_csv(
 ) -> bool:
     """Persist a CSV-derived completed workout; return True if inserted.
 
-    Cross-dedup: if a raw-file workout already covers the natural key, skip this
-    CSV summary (prefer the raw-file row which carries streams).
-    Natural-key dedup: (workout_date, duration_bucket, distance_disc).
+    A CSV completed row is skipped if EITHER:
+      (a) its CROSS-SOURCE key ``(date, duration_bucket)`` is in
+          ``raw_file_keys`` — its raw-file twin was already imported (prefer the
+          raw row which carries streams), OR
+      (b) its WITHIN-CSV key ``(date, duration_bucket, distance_disc)`` matches
+          an already-persisted CSV-derived row (re-run idempotency / true dup).
+    Otherwise the row is persisted.
+
+    Cross-source uses duration only (distance is not stable across sources);
+    within-CSV adds a distance/name discriminator so two distinct same-day
+    same-duration rides both survive.
     """
     workout_date = act.started_at.date()
-    key = _completed_key(workout_date, act.duration_s, act.distance_m, act.name)
+    cross_key = _cross_source_key(workout_date, act.duration_s)
+    within_key = _within_csv_key(workout_date, act.duration_s, act.distance_m, act.name)
 
-    # Cross-dedup: skip if a raw-file workout was already ingested for this
-    # (date, duration±60s, distance±500m) combination.
-    if key in raw_file_keys:
+    # (a) Cross-source dedup: a raw-file twin already covers (date, duration).
+    if cross_key in raw_file_keys:
         log.debug(
             "csv_completed_skipped_raw_file_covers",
-            extra={"date": str(workout_date), "key": str(key)},
+            extra={"date": str(workout_date), "cross_key": str(cross_key)},
         )
         return False
 
-    # Natural-key dedup against already-persisted rows on the same date.
+    # (b) Within-CSV dedup against already-persisted CSV-derived rows on the
+    #     same date (exclude raw-file rows, which carry a source_file_id —
+    #     those are handled by the cross-source key above).
     stmt = (
         select(WorkoutCompleted)
         .where(WorkoutCompleted.deleted_at.is_(None))
         .where(WorkoutCompleted.athlete_id == athlete_id)
         .where(WorkoutCompleted.workout_date == workout_date)
+        .where(WorkoutCompleted.source_file_id.is_(None))
     )
     res = await session.execute(stmt)
     existing_on_date = res.scalars().all()
     for ex in existing_on_date:
-        ex_key = _completed_key(ex.workout_date, ex.duration_s, ex.distance_m, ex.name)
-        if ex_key == key:
+        ex_key = _within_csv_key(ex.workout_date, ex.duration_s, ex.distance_m, ex.name)
+        if ex_key == within_key:
             return False
 
     from app.repositories.metrics_repo import FtpRepository
@@ -395,12 +427,12 @@ async def import_athlete_folder(
 
     Idempotency:
     - metrics: upsert by (athlete_id, metric_date)
-    - completed workouts: natural-key dedup by
-      (workout_date, duration_bucket, distance_disc)
     - raw files: content-hash dedup via import_file
     - planned workouts: natural-key dedup by (athlete_id, planned_date, name)
-    - cross-dedup: when a raw file covers the completed natural key, skip the
-      CSV summary
+    - completed CSV workouts: skipped if EITHER its cross-source key
+      (workout_date, duration_bucket) matches an already-imported raw-file
+      workout, OR its within-CSV key (workout_date, duration_bucket,
+      distance_disc) matches an already-persisted CSV-derived workout
 
     See ``IngestionReport`` for report-field semantics (counts = created this
     run; period & coverage = over this run's parsed dataset, stable across runs).
@@ -476,7 +508,8 @@ async def import_athlete_folder(
     # ------------------------------------------------------------------ #
     # 3. Raw activity files (import_file with content-hash dedup)          #
     # ------------------------------------------------------------------ #
-    # Collect completed natural keys for CSV-vs-raw cross-dedup below.
+    # Collect cross-source keys (date, duration_bucket) of imported raw-file
+    # workouts, for CSV-vs-raw cross-dedup below (duration only, NO distance).
     raw_file_keys: set[tuple] = set()
     raw_files_total_created = 0
 
@@ -508,8 +541,9 @@ async def import_athlete_folder(
                 report.duplicates_skipped += result.duplicates_skipped
                 raw_files_total_created += result.workouts_created
 
-                if result.workouts_created > 0 and result.imported_file.status.value == "completed":
-                    # Record natural keys of newly created workouts for cross-dedup.
+                if result.workouts_created > 0:
+                    # Record cross-source keys of newly created workouts so a
+                    # CSV summary for the same session (date+duration) dedups.
                     stmt = (
                         select(WorkoutCompleted)
                         .where(WorkoutCompleted.deleted_at.is_(None))
@@ -519,7 +553,7 @@ async def import_athlete_folder(
                     res = await session.execute(stmt)
                     for w in res.scalars().all():
                         raw_file_keys.add(
-                            _completed_key(w.workout_date, w.duration_s, w.distance_m, w.name)
+                            _cross_source_key(w.workout_date, w.duration_s)
                         )
 
     # ------------------------------------------------------------------ #
