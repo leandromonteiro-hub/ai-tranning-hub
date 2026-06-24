@@ -83,23 +83,10 @@ class TestEstimateFtpTimeline:
         assert est.ftp_watts == pytest.approx(285.0)
         assert est.method == "estimate_pc20"
 
-    def test_window_without_20min_falls_back_to_60min(self) -> None:
-        # Inject a synthetic power curve dict directly via all_time_power_curve to test
-        # the branching logic: the 60-min fallback triggers when key 1200 is absent
-        # but key 3600 is present.
-        #
-        # We achieve this by patching all_time_power_curve inside the estimator to
-        # return a dict without the 1200 key.  Rather than mocking, we verify the
-        # branch via the public estimate_ftp_timeline by providing a fabricated
-        # scenario: the streams argument is ignored and we directly check that the
-        # estimate_pc60 branch produces the correct value when only a 3600-key is
-        # available.
-        #
-        # Practical approach: subclass / monkeypatch is overkill; instead verify the
-        # codepath by checking that a window with ONLY a 65-min stream — where by
-        # definition best_20min IS computable — uses pc20 (not pc60), confirming the
-        # priority order is correct.  A separate direct unit-test of estimate_pc60
-        # branch is done below.
+    def test_65min_stream_uses_pc20_not_pc60(self) -> None:
+        # A continuous 65-min stream always yields a 20-min best too, so the pc20
+        # path must win over pc60 — this confirms the priority order. The pc60
+        # branch itself is exercised directly in the monkeypatch test below.
         stream_65min = _constant_stream(240.0, 65 * 60)
         windows = [
             (date(2024, 4, 1), date(2024, 6, 30), [stream_65min]),

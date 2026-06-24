@@ -104,7 +104,7 @@ def all_time_power_curve(
 
 
 # Window type alias for readability
-_Window = tuple[date, "date | None", list[list[float]]]
+_Window = tuple[date, date | None, list[list[float]]]
 
 
 def estimate_ftp_timeline(
