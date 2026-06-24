@@ -178,7 +178,9 @@ def parse_tp_workouts(
     """
     try:
         df = pd.read_csv(io.BytesIO(data))
-    except Exception:
+    except pd.errors.EmptyDataError:
+        # Header-only or completely empty file — no rows to parse.
+        # Any other parse error propagates so callers fail loudly.
         return [], [], {"rows": 0, "completed": 0, "planned": 0, "rest_days": 0}
     if df.empty:
         return [], [], {"rows": 0, "completed": 0, "planned": 0, "rest_days": 0}

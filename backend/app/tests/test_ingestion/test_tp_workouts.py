@@ -190,7 +190,7 @@ def test_completed_source_tss_and_if():
 
 def test_completed_notes_is_workout_description():
     completed, _, _ = parse_tp_workouts(SAMPLE_CSV)
-    assert "desc with" in completed[0].notes
+    assert completed[0].notes == "desc with\nnewline"
 
 
 def test_completed_extra_power_max():
@@ -295,6 +295,26 @@ def test_extra_default_is_empty_dict():
 def test_multiline_description_survives_csv_roundtrip():
     """WorkoutDescription with embedded newline must not break parsing."""
     completed, _, _ = parse_tp_workouts(SAMPLE_CSV)
-    # The description "desc with\nnewline" should survive the CSV roundtrip
-    assert completed[0].notes is not None
-    assert "desc with" in completed[0].notes
+    # The description "desc with\nnewline" should survive the CSV roundtrip intact.
+    assert completed[0].notes == "desc with\nnewline"
+
+
+def test_row_yields_both_completed_and_planned():
+    """A single row with BOTH planned and executed signals yields one of each."""
+    row = {
+        **COMPLETED_ROW,
+        "WorkoutDay": "2026-05-01",
+        "WorkoutType": "Bike",
+        "TimeTotalInHours": 1.5,
+        "TSS": 70.0,
+        "PlannedDuration": 2.0,
+    }
+    csv = _build_csv([row])
+    completed, planned, report = parse_tp_workouts(csv)
+
+    assert len(completed) == 1
+    assert len(planned) == 1
+    assert completed[0].duration_s == 5400  # 1.5 h executed
+    assert planned[0].planned_duration_s == 7200  # 2.0 h planned
+    assert report["completed"] == 1
+    assert report["planned"] == 1
