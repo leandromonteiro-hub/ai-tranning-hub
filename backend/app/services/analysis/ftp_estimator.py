@@ -6,13 +6,18 @@ ST2.4.
 
 Public API
 ----------
-all_time_power_curve(power_streams) -> dict[int, float]
-    Best mean-maximal power per standard duration across all supplied streams.
-    Delegates entirely to :mod:`app.services.metrics.power_curve`.
+is_plausible_power_stream(power_stream, ceiling_20min_w=600.0) -> bool
+    Reject corrupt streams (wrong units / device glitch) whose 20-min
+    mean-maximal power exceeds a physiological ceiling.
+
+all_time_power_curve(power_streams) -> tuple[dict[int, float], int]
+    Best mean-maximal power per standard duration across all *plausible*
+    streams, plus the count of streams excluded as implausible.  Delegates
+    the mean-max math entirely to :mod:`app.services.metrics.power_curve`.
 
 estimate_ftp_timeline(windows) -> list[FtpEstimate]
     Estimate FTP for each temporal window using 20-min (primary) or 60-min
-    (fallback) best power.
+    (fallback) best power.  Applies the same plausibility filter per window.
 
 Window input shape
 ------------------
@@ -51,6 +56,45 @@ _DURATION_20MIN = 1200
 _DURATION_60MIN = 3600
 _FTP_FACTOR = 0.95
 
+# Generous physiological ceiling for sustained 20-min power.  No human sustains
+# >600 W for 20 min; well above this athlete's ~312 W.  A stream over this is a
+# corrupt/wrong-units/device-glitch artifact and must not pollute the curve.
+_DEFAULT_CEILING_20MIN_W = 600.0
+
+
+def is_plausible_power_stream(
+    power_stream: Sequence[float],
+    ceiling_20min_w: float = _DEFAULT_CEILING_20MIN_W,
+) -> bool:
+    """Return ``False`` for streams that are physiologically impossible.
+
+    A stream is implausible when its best 20-min (1200 s) mean-maximal power
+    exceeds ``ceiling_20min_w`` — a signature of wrong units or a device glitch.
+
+    Streams shorter than 1200 s cannot produce a 20-min inflated value, so they
+    are treated as **plausible** here (judged elsewhere by their own duration).
+    This keeps the helper focused on the one failure mode that pollutes the
+    all-time curve's headline marks.
+
+    Parameters
+    ----------
+    power_stream:
+        1 Hz list of power values (watts).
+    ceiling_20min_w:
+        Maximum believable 20-min mean-maximal power.  Default 600 W.
+
+    Returns
+    -------
+    bool
+        ``True`` if the stream is plausible (or too short to judge), else
+        ``False``.
+    """
+    best_20 = best_mean_maximal(power_stream, _DURATION_20MIN)
+    if best_20 is None:
+        # Too short to produce a 20-min value → cannot be the inflation source.
+        return True
+    return best_20 <= ceiling_20min_w
+
 
 @dataclass(frozen=True)
 class FtpEstimate:
@@ -73,34 +117,44 @@ class FtpEstimate:
 def all_time_power_curve(
     power_streams: list[list[float]],
     durations: Sequence[int] = tuple(DEFAULT_DURATIONS),
-) -> dict[int, float]:
-    """Return the best mean-maximal power per duration across all streams.
+    ceiling_20min_w: float = _DEFAULT_CEILING_20MIN_W,
+) -> tuple[dict[int, float], int]:
+    """Return the best mean-maximal power per duration across plausible streams.
 
-    For each standard duration the highest value found in *any* stream wins.
-    Durations for which no stream is long enough are absent from the result.
+    Implausible streams (see :func:`is_plausible_power_stream`) are filtered out
+    *before* merging so a corrupt/wrong-units stream cannot inflate the
+    athlete-facing best marks.  For each standard duration the highest value
+    found in any *kept* stream wins; durations for which no kept stream is long
+    enough are absent.
 
     Parameters
     ----------
     power_streams:
         Each element is a 1 Hz list of power values (floats, watts) for one
-        workout.  An empty outer list returns ``{}``.
+        workout.  An empty outer list returns ``({}, 0)``.
     durations:
         Sequence of durations in seconds to evaluate.  Defaults to the same
         set used by :func:`~app.services.metrics.power_curve.power_curve`.
+    ceiling_20min_w:
+        Plausibility ceiling forwarded to :func:`is_plausible_power_stream`.
 
     Returns
     -------
-    dict[int, float]
-        ``{duration_s: best_watts}`` — only durations with at least one valid
-        result are included.
+    tuple[dict[int, float], int]
+        ``(curve, excluded)`` where *curve* is ``{duration_s: best_watts}`` and
+        *excluded* is the number of streams rejected as implausible.
     """
     best: dict[int, float] = {}
+    excluded = 0
     for stream in power_streams:
+        if not is_plausible_power_stream(stream, ceiling_20min_w):
+            excluded += 1
+            continue
         curve = power_curve(stream, durations=durations)
         for d, val in curve.items():
             if d not in best or val > best[d]:
                 best[d] = val
-    return best
+    return best, excluded
 
 
 # Window type alias for readability
@@ -126,7 +180,9 @@ def estimate_ftp_timeline(
     """
     estimates: list[FtpEstimate] = []
     for valid_from, valid_to, streams in windows:
-        curve = all_time_power_curve(streams)
+        # all_time_power_curve already filters implausible streams, so a corrupt
+        # stream cannot inflate a window's FTP either.
+        curve, _excluded = all_time_power_curve(streams)
 
         if _DURATION_20MIN in curve:
             ftp = _FTP_FACTOR * curve[_DURATION_20MIN]

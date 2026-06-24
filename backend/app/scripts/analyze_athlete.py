@@ -332,7 +332,7 @@ async def run_analysis(
         for stream in w.streams
         if stream.power
     ]
-    power_curve_dict = all_time_power_curve(all_streams)
+    power_curve_dict, excluded_streams = all_time_power_curve(all_streams)
 
     windows = _build_quarterly_windows(workouts)
     ftp_timeline = estimate_ftp_timeline(windows)
@@ -362,6 +362,7 @@ async def run_analysis(
         tapers=tapers,
         comment_terms=comment_terms,
         ftp_timeline=ftp_timeline,
+        excluded_streams=excluded_streams,
     )
 
     # --- Write report ---
@@ -396,6 +397,7 @@ async def run_analysis(
     print(f"  Provas detectadas:       {len(races)}")
     print(f"  FtpHistory persistidos:  {ftp_count}")
     print(f"  PowerCurvePoints:        {pc_count}")
+    print(f"  Streams de potência implausíveis excluídos: {excluded_streams}")
     print(f"  Relatório:               {report_path}")
     print(f"{'='*60}\n")
 

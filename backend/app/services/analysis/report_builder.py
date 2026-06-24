@@ -194,13 +194,22 @@ def _section_pre_prova(races: list[Race], tapers: list[TaperWindow]) -> str:
     return "\n".join(lines)
 
 
-def _section_melhores_marcas(power_marks: BestPowerMarks, ftp_timeline: list[FtpEstimate]) -> str:
+def _section_melhores_marcas(
+    power_marks: BestPowerMarks,
+    ftp_timeline: list[FtpEstimate],
+    excluded_streams: int = 0,
+) -> str:
     lines: list[str] = []
     lines.append("## Melhores marcas e padrões de potência\n")
     lines.append(
         "Baseado na curva de potência all-time derivada dos streams de potência importados "
         "(dado medido).\n"
     )
+    if excluded_streams:
+        lines.append(
+            f"*Streams de potência implausíveis excluídos (filtro de qualidade): "
+            f"{excluded_streams}.*\n"
+        )
 
     if not power_marks.marks:
         lines.append("*Sem dados de potência suficientes para calcular marcas.*")
@@ -461,6 +470,7 @@ def build_profile_report(
     tapers: list[TaperWindow],
     comment_terms: list[tuple[str, int]],
     ftp_timeline: list[FtpEstimate],
+    excluded_streams: int = 0,
 ) -> tuple[str, dict]:
     """Assemble the PT-BR markdown profile report and the twin_seed dict.
 
@@ -500,7 +510,7 @@ def build_profile_report(
         _section_perfil(athlete_name, weight_kg, volume_trend, modality, ftp_timeline),
         _section_metodologia(blocks),
         _section_pre_prova(races, tapers),
-        _section_melhores_marcas(power_marks, ftp_timeline),
+        _section_melhores_marcas(power_marks, ftp_timeline, excluded_streams),
         _section_correlacao(comment_terms, intensity),
         _section_resumo_executivo(
             athlete_name, weight_kg, volume_trend, modality,
