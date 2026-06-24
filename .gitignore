@@ -21,7 +21,14 @@ htmlcov/
 /data/
 /uploads/
 
+# Real athlete data (never commit)
+docs/data-atletas/
+sample_fit/
+
 # OS / editor
 .DS_Store
 .idea/
 .vscode/
+
+# Athlete profile analyses (sensitive — like raw data)
+docs/atletas/*-perfil.md
