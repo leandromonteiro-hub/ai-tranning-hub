@@ -556,6 +556,21 @@ async def import_athlete_folder(
                             _cross_source_key(w.workout_date, w.duration_s)
                         )
 
+    # Re-run idempotency: seed raw_file_keys with ALL already-persisted raw-file
+    # workouts (source_file_id IS NOT NULL), not only the ones created this run.
+    # On a re-run, import_file content-hash-dedups the raw files and creates 0 new
+    # workouts; without this, every CSV summary whose twin is a raw-file row would
+    # be re-inserted as a duplicate.
+    existing_raw_stmt = (
+        select(WorkoutCompleted.workout_date, WorkoutCompleted.duration_s)
+        .where(WorkoutCompleted.deleted_at.is_(None))
+        .where(WorkoutCompleted.athlete_id == athlete_id)
+        .where(WorkoutCompleted.source_file_id.is_not(None))
+    )
+    res = await session.execute(existing_raw_stmt)
+    for w_date, w_dur in res.all():
+        raw_file_keys.add(_cross_source_key(w_date, w_dur))
+
     # ------------------------------------------------------------------ #
     # 4. Workouts CSV                                                      #
     # ------------------------------------------------------------------ #

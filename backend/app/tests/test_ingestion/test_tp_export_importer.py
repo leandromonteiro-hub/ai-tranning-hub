@@ -71,6 +71,22 @@ def _build_workouts_csv() -> bytes:
             "PlannedDuration": None,
         },
         {
+            # Cross-source twin of the GPX raw file (2026-01-11, ~1h = 3600s).
+            # On the first run the raw file is imported first and this summary is
+            # cross-deduped; a re-run must keep it deduped (idempotency).
+            "WorkoutDay": "2026-01-11",
+            "WorkoutType": "Bike",
+            "Title": "Same Session Summary",
+            "WorkoutDescription": "Z2 (also has a raw .gpx)",
+            "TimeTotalInHours": 1.0,
+            "TSS": 50.0,
+            "IF": 0.70,
+            "PowerAverage": 180.0,
+            "DistanceInMeters": 31000.0,
+            "HeartRateAverage": 130.0,
+            "PlannedDuration": None,
+        },
+        {
             "WorkoutDay": "2026-01-12",
             "WorkoutType": "Bike",
             "Title": "Planned Tempo",
