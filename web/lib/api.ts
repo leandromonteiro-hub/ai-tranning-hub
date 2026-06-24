@@ -12,7 +12,9 @@ export class ApiError extends Error {
 async function handle(res: Response): Promise<Response> {
   if (res.status === 401) {
     // Sessão expirada/ausente — derruba e volta ao login.
-    await fetch("/api/auth/logout", { method: "POST" });
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {}
     if (typeof window !== "undefined") window.location.href = "/login";
     throw new ApiError(401, "Sessão expirada");
   }
