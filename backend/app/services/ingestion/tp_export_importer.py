@@ -10,13 +10,17 @@ Three independent dedup layers ensure a second run produces 0 new rows:
    finds the existing ``ImportedFile`` row and returns ``workouts_created=0``.
 
 2. **workouts.csv completed summaries** (NormalizedActivity from CSV):
-   Deduped by natural key ``(athlete_id, workout_date, duration_s_bucket)``
-   where ``duration_s_bucket = round(duration_s / 60)`` (1-minute precision).
+   Deduped by natural key ``(workout_date, duration_bucket, distance_bucket)``
+   where ``duration_bucket = round(duration_s / 60)`` (1-minute precision) and
+   ``distance_bucket = round(distance_m / 500)`` (500 m precision) when distance
+   is present, else falls back to the workout name. The distance/name
+   discriminator prevents two distinct rides on the same day with a similar
+   duration from colliding, while the SAME session across sources still dedups.
    On a second run we query for an existing row before inserting.
-   **Cross-dedup**: if a raw-file workout already covers the same
-   (workout_date, duration_s ± 60 s), we skip the CSV summary entirely
-   (prefer the raw-file row since it carries streams). This is implemented by
-   collecting raw-file workout keys FIRST, then filtering CSV completed.
+   **Cross-dedup**: if a raw-file workout already covers the same key, we skip
+   the CSV summary entirely (prefer the raw-file row since it carries streams).
+   This is implemented by collecting raw-file workout keys FIRST, then filtering
+   CSV completed.
 
 3. **workouts.csv planned** (TpPlanned):
    Deduped by natural key ``(athlete_id, planned_date, name)``.
@@ -63,9 +67,28 @@ log = get_logger(__name__)
 
 @dataclass
 class IngestionReport:
-    """Summary of what was ingested from a TrainingPeaks export folder."""
+    """Summary of what was ingested from a TrainingPeaks export folder.
 
-    # Counts
+    Field semantics (stable & comparable across runs):
+
+    - **Counts** (``workouts_completed``, ``workouts_planned``, ``rest_days``,
+      ``recovery_days``, ``subjective_days``, ``duplicates_skipped``) mean
+      "rows created/affected THIS run". On a fully-idempotent second run these
+      are 0 (and ``duplicates_skipped`` reflects the rows that were already
+      present).
+    - **Period** (``period_start`` / ``period_end``) is derived from the DATES
+      PARSED OUT OF THE FILES (metrics + workouts), independent of whether rows
+      were newly created. A second run reports the same real period.
+    - **Coverage %** (``pct_power`` / ``pct_hr`` / ``pct_hrv``) is computed over
+      THIS run's parsed dataset, so it is stable and comparable across runs:
+        * pct_power = parsed completed activities with avg_power / parsed completed
+        * pct_hr    = parsed completed activities with avg_hr / parsed completed
+        * pct_hrv   = parsed recovery days with hrv_ms / parsed recovery days
+    - ``unmapped_metric_types`` and ``anomalies`` are quality signals over the
+      parsed dataset of this run.
+    """
+
+    # Counts (rows created/affected THIS run)
     workouts_completed: int = 0
     workouts_planned: int = 0
     rest_days: int = 0
@@ -73,16 +96,16 @@ class IngestionReport:
     subjective_days: int = 0
     duplicates_skipped: int = 0
 
-    # Period covered
+    # Period covered (from PARSED file dates, stable across runs)
     period_start: date | None = None
     period_end: date | None = None
 
-    # Coverage percentages (0–100)
-    pct_power: float = 0.0   # completed workouts with avg_power / total
-    pct_hr: float = 0.0      # completed workouts with avg_hr / total
-    pct_hrv: float = 0.0     # recovery days with hrv_ms / total recovery days
+    # Coverage percentages (0–100) over THIS run's parsed dataset
+    pct_power: float = 0.0   # parsed completed activities with avg_power / total
+    pct_hr: float = 0.0      # parsed completed activities with avg_hr / total
+    pct_hrv: float = 0.0     # parsed recovery days with hrv_ms / total
 
-    # Quality
+    # Quality (over parsed dataset)
     unmapped_metric_types: dict = field(default_factory=dict)
     anomalies: list[str] = field(default_factory=list)
 
@@ -98,21 +121,46 @@ def _bucket(duration_s: int | None) -> int | None:
     return round(duration_s / 60)
 
 
-def _detect_anomalies(
-    completed_workouts: list[WorkoutCompleted],
-) -> list[str]:
+def _distance_disc(distance_m: float | None, name: str | None) -> object:
+    """Distance discriminator for the completed natural key.
+
+    Returns ``round(distance_m / 500)`` (500 m buckets) when distance is
+    present, else falls back to the workout name (or "" when both absent).
+    This keeps two distinct rides on the same day with a similar duration
+    from colliding, while the SAME session across sources still dedups.
+    """
+    if distance_m is not None:
+        return round(distance_m / 500)
+    return name or ""
+
+
+def _completed_key(
+    workout_date: date,
+    duration_s: int | None,
+    distance_m: float | None,
+    name: str | None,
+) -> tuple:
+    """Natural key for a completed workout: (date, duration_bucket, distance_disc)."""
+    return (workout_date, _bucket(duration_s), _distance_disc(distance_m, name))
+
+
+def _detect_anomalies(parsed_completed: list) -> list[str]:
+    """Detect anomalies over THIS run's parsed completed activities.
+
+    Operates on parsed ``NormalizedActivity`` objects (not persisted rows) so
+    the result is stable and comparable across idempotent re-runs.
+    """
     anomalies: list[str] = []
-    for w in completed_workouts:
-        if w.duration_s is not None and w.duration_s > 16 * 3600:
-            anomalies.append(
-                f"duration>16h on {w.workout_date}: {w.duration_s / 3600:.1f}h"
-            )
-        if w.tss is not None and w.tss > 700:
-            anomalies.append(f"tss>700 on {w.workout_date}: {w.tss:.0f}")
-        if w.avg_power is not None and w.avg_power < 0:
-            anomalies.append(f"negative avg_power on {w.workout_date}: {w.avg_power}")
-        if w.avg_hr is not None and w.avg_hr < 0:
-            anomalies.append(f"negative avg_hr on {w.workout_date}: {w.avg_hr}")
+    for act in parsed_completed:
+        d = act.started_at.date()
+        if act.duration_s is not None and act.duration_s > 16 * 3600:
+            anomalies.append(f"duration>16h on {d}: {act.duration_s / 3600:.1f}h")
+        if act.source_tss is not None and act.source_tss > 700:
+            anomalies.append(f"tss>700 on {d}: {act.source_tss:.0f}")
+        if act.avg_power is not None and act.avg_power < 0:
+            anomalies.append(f"negative avg_power on {d}: {act.avg_power}")
+        if act.avg_hr is not None and act.avg_hr < 0:
+            anomalies.append(f"negative avg_hr on {d}: {act.avg_hr}")
     return anomalies
 
 
@@ -207,23 +255,23 @@ async def _persist_completed_csv(
 ) -> bool:
     """Persist a CSV-derived completed workout; return True if inserted.
 
-    Cross-dedup: if a raw-file workout already covers (workout_date, bucket)
-    skip this CSV summary (prefer the raw-file row which carries streams).
-    Natural-key dedup: (athlete_id, workout_date, duration_bucket).
+    Cross-dedup: if a raw-file workout already covers the natural key, skip this
+    CSV summary (prefer the raw-file row which carries streams).
+    Natural-key dedup: (workout_date, duration_bucket, distance_disc).
     """
     workout_date = act.started_at.date()
-    bucket = _bucket(act.duration_s)
+    key = _completed_key(workout_date, act.duration_s, act.distance_m, act.name)
 
     # Cross-dedup: skip if a raw-file workout was already ingested for this
-    # date/duration combination (within ±60 s → same bucket).
-    if (workout_date, bucket) in raw_file_keys:
+    # (date, duration±60s, distance±500m) combination.
+    if key in raw_file_keys:
         log.debug(
             "csv_completed_skipped_raw_file_covers",
-            extra={"date": str(workout_date), "bucket": bucket},
+            extra={"date": str(workout_date), "key": str(key)},
         )
         return False
 
-    # Natural-key dedup
+    # Natural-key dedup against already-persisted rows on the same date.
     stmt = (
         select(WorkoutCompleted)
         .where(WorkoutCompleted.deleted_at.is_(None))
@@ -233,16 +281,14 @@ async def _persist_completed_csv(
     res = await session.execute(stmt)
     existing_on_date = res.scalars().all()
     for ex in existing_on_date:
-        ex_bucket = _bucket(ex.duration_s)
-        if ex_bucket is not None and bucket is not None and ex_bucket == bucket:
+        ex_key = _completed_key(ex.workout_date, ex.duration_s, ex.distance_m, ex.name)
+        if ex_key == key:
             return False
 
-    from app.models.enums import WorkoutType
     from app.repositories.metrics_repo import FtpRepository
-    from app.repositories.workout_repo import WorkoutRepository as WR
     from app.services.metrics import tss_calculator
 
-    workout_repo = WR(session, ctx)
+    workout_repo = WorkoutRepository(session, ctx)
     ftp_repo = FtpRepository(session, ctx)
     ftp = await ftp_repo.value_on(workout_date, athlete_id)
 
@@ -253,6 +299,11 @@ async def _persist_completed_csv(
         np_value = act.source_np or act.avg_power
         intf = tss_calculator.intensity_factor(np_value, ftp) or intf
         tss = tss_calculator.tss_from_np(act.duration_s, np_value, ftp) or tss
+
+    # Provenance: WorkoutCompleted has no source column, so we record the
+    # source on the extra dict (CSV-summary rows have no source_file_id).
+    extra = dict(act.extra) if act.extra else {}
+    extra["source"] = source
 
     workout = WorkoutCompleted(
         athlete_id=athlete_id,
@@ -272,11 +323,9 @@ async def _persist_completed_csv(
         tss=tss,
         ftp_used=ftp,
         notes=act.notes,
-        extra=act.extra or None,
+        extra=extra,
         created_by=athlete_id,
     )
-    # source field: WorkoutCompleted doesn't have a source column;
-    # source provenance is captured in extra or source_file_id
     await workout_repo.add(workout)
     return True
 
@@ -303,6 +352,10 @@ async def _persist_planned(
     if res.scalar_one_or_none():
         return False
 
+    # Provenance: WorkoutPlanned has no source column → record on extra.
+    extra = dict(tp.extra) if tp.extra else {}
+    extra["source"] = source
+
     row = WorkoutPlanned(
         athlete_id=athlete_id,
         planned_date=tp.planned_date,
@@ -311,7 +364,7 @@ async def _persist_planned(
         planned_duration_s=tp.planned_duration_s,
         planned_tss=tp.planned_tss,
         description=tp.description,
-        extra=tp.extra or None,
+        extra=extra,
         created_by=athlete_id,
     )
     session.add(row)
@@ -342,13 +395,25 @@ async def import_athlete_folder(
 
     Idempotency:
     - metrics: upsert by (athlete_id, metric_date)
-    - completed workouts: natural-key dedup by (athlete_id, workout_date, duration_bucket)
+    - completed workouts: natural-key dedup by
+      (workout_date, duration_bucket, distance_disc)
     - raw files: content-hash dedup via import_file
     - planned workouts: natural-key dedup by (athlete_id, planned_date, name)
-    - cross-dedup: when raw file covers (workout_date, duration±60s), skip CSV summary
+    - cross-dedup: when a raw file covers the completed natural key, skip the
+      CSV summary
+
+    See ``IngestionReport`` for report-field semantics (counts = created this
+    run; period & coverage = over this run's parsed dataset, stable across runs).
     """
     report = IngestionReport()
-    all_dates: list[date] = []
+
+    # Dates parsed out of the files (metrics + workouts), used to derive the
+    # report period independently of whether rows were newly created.
+    parsed_dates: list[date] = []
+    # Parsed completed activities (NormalizedActivity) for stable coverage %.
+    parsed_completed: list = []
+    # Parsed recovery metrics (TpDailyMetric) for stable HRV coverage %.
+    parsed_recovery: list = []
 
     # ------------------------------------------------------------------ #
     # 1. Discover and classify zips                                        #
@@ -395,6 +460,8 @@ async def import_athlete_folder(
                     )
 
                 for m in metrics:
+                    parsed_recovery.append(m)
+                    parsed_dates.append(m.metric_date)
                     is_new_rec = await _upsert_recovery(
                         session, ctx, athlete_id, m, source
                     )
@@ -405,12 +472,11 @@ async def import_athlete_folder(
                     )
                     if is_new_sub:
                         report.subjective_days += 1
-                    all_dates.append(m.metric_date)
 
     # ------------------------------------------------------------------ #
     # 3. Raw activity files (import_file with content-hash dedup)          #
     # ------------------------------------------------------------------ #
-    # Collect keys (workout_date, duration_bucket) for cross-dedup below.
+    # Collect completed natural keys for CSV-vs-raw cross-dedup below.
     raw_file_keys: set[tuple] = set()
     raw_files_total_created = 0
 
@@ -443,20 +509,18 @@ async def import_athlete_folder(
                 raw_files_total_created += result.workouts_created
 
                 if result.workouts_created > 0 and result.imported_file.status.value == "completed":
-                    # Record keys of newly created workouts for cross-dedup
-                    repo = WorkoutRepository(session, ctx)
-                    # Fetch workouts created from this file
-                    from sqlalchemy import select as sa_select
+                    # Record natural keys of newly created workouts for cross-dedup.
                     stmt = (
-                        sa_select(WorkoutCompleted)
+                        select(WorkoutCompleted)
                         .where(WorkoutCompleted.deleted_at.is_(None))
                         .where(WorkoutCompleted.athlete_id == athlete_id)
                         .where(WorkoutCompleted.source_file_id == result.imported_file.id)
                     )
                     res = await session.execute(stmt)
                     for w in res.scalars().all():
-                        raw_file_keys.add((w.workout_date, _bucket(w.duration_s)))
-                        all_dates.append(w.workout_date)
+                        raw_file_keys.add(
+                            _completed_key(w.workout_date, w.duration_s, w.distance_m, w.name)
+                        )
 
     # ------------------------------------------------------------------ #
     # 4. Workouts CSV                                                      #
@@ -475,65 +539,54 @@ async def import_athlete_folder(
                 report.rest_days += w_report.get("rest_days", 0)
 
                 for act in completed_acts:
+                    parsed_completed.append(act)
+                    parsed_dates.append(act.started_at.date())
                     inserted = await _persist_completed_csv(
                         session, ctx, athlete_id, act, raw_file_keys, source
                     )
                     if inserted:
                         csv_completed_created += 1
-                        all_dates.append(act.started_at.date())
                     else:
                         report.duplicates_skipped += 1
 
                 for tp in planned_acts:
+                    parsed_dates.append(tp.planned_date)
                     inserted = await _persist_planned(
                         session, ctx, athlete_id, tp, source
                     )
                     if inserted:
                         csv_planned_created += 1
-                        all_dates.append(tp.planned_date)
                     else:
                         report.duplicates_skipped += 1
 
     # ------------------------------------------------------------------ #
-    # 5. Finalise counts                                                   #
+    # 5. Finalise report                                                   #
     # ------------------------------------------------------------------ #
+    # Counts mean "rows created THIS run".
     report.workouts_completed = raw_files_total_created + csv_completed_created
     report.workouts_planned = csv_planned_created
 
-    # Period
-    if all_dates:
-        report.period_start = min(all_dates)
-        report.period_end = max(all_dates)
+    # Period: derived from the dates PARSED OUT OF THE FILES (metrics + workouts),
+    # independent of whether rows were newly created → stable across runs.
+    if parsed_dates:
+        report.period_start = min(parsed_dates)
+        report.period_end = max(parsed_dates)
 
-    # Coverage: query the DB for final state
-    wc_repo = WorkoutRepository(session, ctx)
-    from sqlalchemy import func as sa_func
-    all_completed = await wc_repo.list_between(
-        report.period_start or date(2000, 1, 1),
-        report.period_end or date(2099, 12, 31),
-        athlete_id,
-    )
-    total_c = len(all_completed)
+    # Coverage %: computed over THIS run's parsed dataset → stable & comparable.
+    total_c = len(parsed_completed)
     if total_c:
-        with_power = sum(1 for w in all_completed if w.avg_power is not None)
-        with_hr = sum(1 for w in all_completed if w.avg_hr is not None)
+        with_power = sum(1 for a in parsed_completed if a.avg_power is not None)
+        with_hr = sum(1 for a in parsed_completed if a.avg_hr is not None)
         report.pct_power = 100.0 * with_power / total_c
         report.pct_hr = 100.0 * with_hr / total_c
 
-    rec_repo = RecoveryRepository(session, ctx)
-    all_rec = await rec_repo.list_recent(
-        report.period_start or date(2000, 1, 1), athlete_id
-    )
-    total_rec = len(all_rec)
+    total_rec = len(parsed_recovery)
     if total_rec:
-        with_hrv = sum(1 for r in all_rec if r.hrv_ms is not None)
+        with_hrv = sum(1 for r in parsed_recovery if r.hrv_ms is not None)
         report.pct_hrv = 100.0 * with_hrv / total_rec
-        # If recovery_days was only tracking new inserts, sync with actual total
-        if report.recovery_days == 0:
-            report.recovery_days = total_rec
 
-    # Anomalies
-    report.anomalies = _detect_anomalies(all_completed)
+    # Anomalies over the parsed completed dataset.
+    report.anomalies = _detect_anomalies(parsed_completed)
 
     # ------------------------------------------------------------------ #
     # 6. Recompute load metrics                                            #

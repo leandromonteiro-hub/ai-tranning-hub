@@ -320,3 +320,210 @@ async def test_report_coverage_fields(db_session, tmp_path):
     assert 0.0 <= report.pct_hrv <= 100.0
     # Anomalies is a list (may be empty for clean data)
     assert isinstance(report.anomalies, list)
+
+
+# ---------------------------------------------------------------------------
+# Dedup behaviour (highest-value tests)
+# ---------------------------------------------------------------------------
+
+def _one_completed_csv(workout_day: str, distance_m, duration_h: float, title=None) -> bytes:
+    """A workouts.csv with a single completed Bike row.
+
+    ``title`` defaults to None so that, with no distance, the natural-key
+    distance discriminator falls back to an empty name — matching a raw
+    activity file that carries no name (so the same session dedups).
+    """
+    rows = [
+        {
+            "WorkoutDay": workout_day,
+            "WorkoutType": "Bike",
+            "Title": title,
+            "WorkoutDescription": "csv summary",
+            "TimeTotalInHours": duration_h,
+            "TSS": 55.0,
+            "IF": 0.7,
+            "PowerAverage": 180.0,
+            "DistanceInMeters": distance_m,
+            "HeartRateAverage": 130.0,
+            "PlannedDuration": None,
+        }
+    ]
+    df = pd.DataFrame(rows)
+    buf = io.BytesIO()
+    df.to_csv(buf, index=False)
+    return buf.getvalue()
+
+
+# TCX with HR → produces an hr_stream → import_file creates a WorkoutStream.
+# Start 07:00 → 08:00 = 3600 s (60-min bucket). No distance → key falls back
+# to the workout name, so the matching CSV row uses the same Title.
+_MINIMAL_TCX = b"""<?xml version="1.0" encoding="UTF-8"?>
+<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+  <Activities>
+    <Activity Sport="Biking">
+      <Lap>
+        <Track>
+          <Trackpoint>
+            <Time>2026-01-11T07:00:00Z</Time>
+            <HeartRateBpm><Value>120</Value></HeartRateBpm>
+            <AltitudeMeters>200</AltitudeMeters>
+          </Trackpoint>
+          <Trackpoint>
+            <Time>2026-01-11T08:00:00Z</Time>
+            <HeartRateBpm><Value>140</Value></HeartRateBpm>
+            <AltitudeMeters>210</AltitudeMeters>
+          </Trackpoint>
+        </Track>
+      </Lap>
+    </Activity>
+  </Activities>
+</TrainingCenterDatabase>"""
+
+
+async def test_cross_source_same_session_dedups_to_raw_file(db_session, tmp_path):
+    """A CSV summary AND a raw file for the SAME natural key →
+    exactly ONE WorkoutCompleted, and it's the raw-file one (streams + source_file_id)."""
+    from app.services.ingestion.tcx_importer import parse_tcx
+    from app.services.ingestion.tp_export_importer import import_athlete_folder
+    from app.models.workout import WorkoutStream
+    from sqlalchemy import func, select
+
+    session, athlete = db_session
+    ctx = TenantContext(athlete_id=athlete.id, tenant_id=athlete.tenant_id, role=Role.ATHLETE)
+
+    # Parse the TCX standalone to learn its date/duration so the CSV row can be
+    # made to MATCH the same natural key. TCX has no distance → key uses name,
+    # so the CSV Title must equal the (None) name → both use name "Summary Ride"?
+    # The raw activity has no name; its key uses ("" fallback). To collide, the
+    # CSV row must also resolve distance→None and name→"" (empty Title).
+    act = parse_tcx(_MINIMAL_TCX)[0]
+    raw_date = act.started_at.strftime("%Y-%m-%d")   # 2026-01-11
+    raw_duration_h = act.duration_s / 3600.0         # 3600 s → 1.0 h
+
+    tp_dir = tmp_path / "TP-2026"
+    tp_dir.mkdir()
+    # CSV completed row matching the raw file: same date, same duration bucket,
+    # no distance, no title → same key ("", duration_bucket) as the raw row.
+    with zipfile.ZipFile(tp_dir / "WorkoutExport-2026.zip", "w") as zf:
+        zf.writestr(
+            "workouts.csv",
+            _one_completed_csv(raw_date, None, raw_duration_h),
+        )
+    with zipfile.ZipFile(tp_dir / "WorkoutFileExport-2026.zip", "w") as zf:
+        zf.writestr("activity_20260111.tcx.gz", gzip.compress(_MINIMAL_TCX))
+
+    await import_athlete_folder(session, ctx, athlete.id, tmp_path)
+    await session.flush()
+
+    # Exactly ONE completed workout for that date
+    rows = (await session.execute(
+        select(WorkoutCompleted).where(
+            WorkoutCompleted.athlete_id == athlete.id,
+            WorkoutCompleted.deleted_at.is_(None),
+        )
+    )).scalars().all()
+    assert len(rows) == 1, f"expected 1 workout, got {len(rows)}"
+
+    # It must be the raw-file one: has a source_file_id and a stream row.
+    w = rows[0]
+    assert w.source_file_id is not None, "kept row is not the raw-file workout"
+    stream_count = (await session.execute(
+        select(func.count()).select_from(WorkoutStream).where(
+            WorkoutStream.workout_id == w.id,
+        )
+    )).scalar()
+    assert stream_count >= 1, "raw-file workout has no stream"
+
+
+async def test_two_distinct_rides_same_day_both_survive(db_session, tmp_path):
+    """Two CSV rows, same date, same duration bucket, DIFFERENT distance →
+    TWO WorkoutCompleted rows (the distance discriminator prevents collision)."""
+    from app.services.ingestion.tp_export_importer import import_athlete_folder
+    from sqlalchemy import func, select
+
+    session, athlete = db_session
+    ctx = TenantContext(athlete_id=athlete.id, tenant_id=athlete.tenant_id, role=Role.ATHLETE)
+
+    rows = [
+        {
+            "WorkoutDay": "2026-02-01",
+            "WorkoutType": "Bike",
+            "Title": "Morning",
+            "WorkoutDescription": "ride A",
+            "TimeTotalInHours": 1.5,   # same duration bucket
+            "TSS": 60.0,
+            "IF": 0.72,
+            "PowerAverage": 185.0,
+            "DistanceInMeters": 40000.0,  # distinct distance
+            "HeartRateAverage": 135.0,
+            "PlannedDuration": None,
+        },
+        {
+            "WorkoutDay": "2026-02-01",
+            "WorkoutType": "Bike",
+            "Title": "Afternoon",
+            "WorkoutDescription": "ride B",
+            "TimeTotalInHours": 1.5,   # same duration bucket
+            "TSS": 62.0,
+            "IF": 0.73,
+            "PowerAverage": 190.0,
+            "DistanceInMeters": 55000.0,  # distinct distance (>500m apart)
+            "HeartRateAverage": 138.0,
+            "PlannedDuration": None,
+        },
+    ]
+    df = pd.DataFrame(rows)
+    buf = io.BytesIO()
+    df.to_csv(buf, index=False)
+
+    tp_dir = tmp_path / "TP-2026"
+    tp_dir.mkdir()
+    with zipfile.ZipFile(tp_dir / "WorkoutExport-2026.zip", "w") as zf:
+        zf.writestr("workouts.csv", buf.getvalue())
+
+    report = await import_athlete_folder(session, ctx, athlete.id, tmp_path)
+    await session.flush()
+
+    count = (await session.execute(
+        select(func.count()).select_from(WorkoutCompleted).where(
+            WorkoutCompleted.athlete_id == athlete.id,
+            WorkoutCompleted.deleted_at.is_(None),
+        )
+    )).scalar()
+    assert count == 2, f"expected 2 distinct rides, got {count}"
+    assert report.workouts_completed == 2
+
+
+async def test_csv_completed_carries_source_tag(db_session, tmp_path):
+    """CSV-derived completed + planned rows carry extra['source']."""
+    from app.services.ingestion.tp_export_importer import import_athlete_folder
+    from sqlalchemy import select
+
+    session, athlete = db_session
+    ctx = TenantContext(athlete_id=athlete.id, tenant_id=athlete.tenant_id, role=Role.ATHLETE)
+
+    _build_fake_folder(tmp_path)
+    await import_athlete_folder(session, ctx, athlete.id, tmp_path)
+    await session.flush()
+
+    # CSV-summary completed workout (no source_file_id) must carry source in extra
+    completed = (await session.execute(
+        select(WorkoutCompleted).where(
+            WorkoutCompleted.athlete_id == athlete.id,
+            WorkoutCompleted.deleted_at.is_(None),
+            WorkoutCompleted.source_file_id.is_(None),
+        )
+    )).scalars().all()
+    assert completed, "no CSV-summary completed workout found"
+    for w in completed:
+        assert w.extra is not None and w.extra.get("source") == "trainingpeaks_export"
+
+    planned = (await session.execute(
+        select(WorkoutPlanned).where(
+            WorkoutPlanned.athlete_id == athlete.id,
+            WorkoutPlanned.deleted_at.is_(None),
+        )
+    )).scalars().all()
+    assert planned, "no planned workout found"
+    for p in planned:
+        assert p.extra is not None and p.extra.get("source") == "trainingpeaks_export"
