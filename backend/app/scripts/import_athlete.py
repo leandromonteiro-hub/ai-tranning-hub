@@ -19,6 +19,7 @@ import argparse
 import asyncio
 import dataclasses
 import json
+import os
 from pathlib import Path
 
 from app.core.database import AsyncSessionLocal
@@ -27,8 +28,16 @@ from app.models.enums import Role
 from app.repositories.athlete_repo import AthleteRepository
 from app.services.ingestion.tp_export_importer import IngestionReport, import_athlete_folder
 
-# Folder where real athlete data lives (gitignored)
-_DATA_ROOT = Path(__file__).resolve().parents[4] / "docs" / "data-atletas"
+# Folder where real athlete data lives (gitignored). In a host checkout the file
+# is at <repo>/backend/app/scripts/import_athlete.py, so the repo root is
+# parents[3]. Inside the container the code lives at /app and the data is mounted
+# elsewhere, so allow an explicit override via DATA_ATLETAS_DIR.
+_DATA_ROOT = Path(
+    os.environ.get(
+        "DATA_ATLETAS_DIR",
+        Path(__file__).resolve().parents[3] / "docs" / "data-atletas",
+    )
+)
 
 
 def _print_report(report: IngestionReport) -> None:
