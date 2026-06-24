@@ -90,12 +90,18 @@ async def onboard_trainingpeaks_export(
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
 
-        # Stage uploaded zips preserving original filenames so the orchestrator's
-        # prefix classification (MetricsExport / WorkoutExport / WorkoutFileExport)
-        # works correctly.
+        # Stage uploaded zips preserving the original filename's BASENAME so the
+        # orchestrator's prefix classification (MetricsExport / WorkoutExport /
+        # WorkoutFileExport) works. Using only the basename (``Path(...).name``)
+        # strips any directory components — a client-supplied ``../`` or absolute
+        # path cannot escape the temp dir (path-traversal / arbitrary-file-write).
         for f in files:
             data = await f.read()
-            dest = tmp_path / (f.filename or "upload.zip")
+            safe_name = Path(f.filename or "upload.zip").name
+            if not safe_name:
+                # Filename was empty or all directory separators — skip.
+                continue
+            dest = tmp_path / safe_name
             dest.write_bytes(data)
 
         # Step 2: Run the Task-1 ingestion pipeline (idempotent).

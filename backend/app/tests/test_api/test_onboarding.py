@@ -206,8 +206,8 @@ async def test_onboarding_endpoint_returns_200_with_ingestion_richness_profile(c
     # Ingestion summary present with counts
     assert "ingestion" in body
     ingestion = body["ingestion"]
-    # At least the CSV-completed workout was created
-    assert ingestion["workouts_completed"] >= 1 or ingestion.get("merged_from_csv", 0) >= 0
+    # At least the CSV-completed workout + the GPX raw workout were created
+    assert ingestion["workouts_completed"] >= 1
     # Recovery days from metrics.csv (2 days of HRV)
     assert ingestion["recovery_days"] >= 1
 
@@ -377,3 +377,59 @@ async def test_idempotency_second_upload_no_duplication(client):
             f"Idempotency FAILED: count grew {count_after_first} → {count_after_second}"
         )
         break
+
+
+async def test_path_traversal_filename_is_sanitized_to_basename(client, tmp_path):
+    """A malicious upload filename (``../`` / absolute) is staged by BASENAME only.
+
+    The endpoint must not write outside its TemporaryDirectory. We send the
+    WorkoutExport zip with a traversal filename ``../WorkoutExport-evil.zip`` and a
+    metrics zip with an absolute-path filename; the upload must still be ingested
+    (basename preserves the classification prefix), and NO file is created at the
+    traversal target on disk.
+    """
+    import os
+
+    token_a = await _token(client, "athlete_a@example.com")
+    headers = {"Authorization": f"Bearer {token_a}"}
+
+    # Build the three zips, but give two of them malicious filenames.
+    files = _build_upload_files()
+    # files[0] = MetricsExport, files[1] = WorkoutExport, files[2] = WorkoutFileExport
+    _, (_, metrics_bytes, ct0) = files[0]
+    _, (_, workouts_bytes, ct1) = files[1]
+    _, (_, wfe_bytes, ct2) = files[2]
+
+    # A sentinel target the traversal would hit if the basename guard were missing.
+    # The absolute-path filename below has basename "MetricsExport-evil.zip", so
+    # only writing OUTSIDE the temp dir (under tmp_path here) would create this
+    # exact file — its presence proves a traversal escape.
+    traversal_target = tmp_path / "MetricsExport-evil.zip"
+    assert not traversal_target.exists()
+
+    malicious_files = [
+        # Absolute path filename — Path(tmp) / absolute would REPLACE the base.
+        # Basename = "MetricsExport-evil.zip" → still classified as MetricsExport
+        # (prefix preserved) and ingested normally once sanitized to basename.
+        ("files", (str(traversal_target), metrics_bytes, ct0)),
+        # Relative traversal filename. Basename = "WorkoutExport-evil.zip" → still
+        # classified as a WorkoutExport (prefix preserved), ingested normally.
+        ("files", ("../WorkoutExport-evil.zip", workouts_bytes, ct1)),
+        ("files", ("../../WorkoutFileExport-evil.zip", wfe_bytes, ct2)),
+    ]
+
+    r = await client.post(
+        "/api/v1/imports/trainingpeaks-export",
+        headers=headers,
+        files=malicious_files,
+    )
+    assert r.status_code == 200, r.text
+
+    # Nothing was written to the traversal target (no arbitrary file write).
+    assert not traversal_target.exists(), "path traversal: file written outside temp dir"
+    assert not os.path.exists("MetricsExport-evil.zip"), "path traversal: file written to cwd"
+
+    # The upload was still ingested normally (basename preserved the prefixes).
+    body = r.json()
+    assert body["ingestion"]["workouts_completed"] >= 1
+    assert body["ingestion"]["recovery_days"] >= 1

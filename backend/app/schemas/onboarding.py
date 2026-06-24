@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class IngestionSummary(BaseModel):
@@ -22,8 +22,8 @@ class IngestionSummary(BaseModel):
     pct_power: float = 0.0
     pct_hr: float = 0.0
     pct_hrv: float = 0.0
-    unmapped_metric_types: dict[str, Any] = {}
-    anomalies: list[str] = []
+    unmapped_metric_types: dict[str, Any] = Field(default_factory=dict)
+    anomalies: list[str] = Field(default_factory=list)
 
 
 class RichnessSummary(BaseModel):
@@ -48,7 +48,7 @@ class ProfileSummary(BaseModel):
     n_blocks: int = 0
     n_races: int = 0
     excluded_power_streams: int = 0
-    richness: dict[str, Any] = {}
+    richness: dict[str, Any] = Field(default_factory=dict)
 
 
 class TrainingPeaksOnboardingResponse(BaseModel):
