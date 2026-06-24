@@ -51,6 +51,14 @@ services:
     container_name: aath_worker
     command: celery -A app.jobs.celery_app.celery worker --loglevel=INFO
     env_file: .env
+    # The backend Dockerfile's HEALTHCHECK curls the API's :8000/health, but the
+    # worker serves no HTTP — override with a Celery liveness probe instead.
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.jobs.celery_app.celery inspect ping -t 5 | grep -q pong || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 5
     depends_on:
       postgres:
         condition: service_healthy
