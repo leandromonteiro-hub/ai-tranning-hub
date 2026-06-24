@@ -51,6 +51,7 @@ class AthleteProfile(Base, TenantMixin):
     medical_conditions: Mapped[str | None] = mapped_column(Text, nullable=True)
     has_power_meter: Mapped[bool] = mapped_column(Boolean, default=False)
     has_hr_monitor: Mapped[bool] = mapped_column(Boolean, default=False)
+    twin_seed: Mapped[dict | None] = mapped_column(jsonb(), nullable=True)
 
     athlete: Mapped[Athlete] = relationship(back_populates="profile")
 
