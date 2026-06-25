@@ -129,3 +129,6 @@ class WorkoutPlanned(Base, TenantMixin):
     source_recommendation_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("ai_recommendations.id"), nullable=True
     )
+    source_plan_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("training_plans.id"), nullable=True, index=True
+    )
