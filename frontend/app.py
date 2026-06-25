@@ -291,6 +291,38 @@ def plan_tab(token: str) -> None:
         for b in blocks:
             st.write(f"- **{b['block_type']}**: {b['start_date']} → {b['end_date']} — {b.get('focus') or ''}")
 
+    st.divider()
+    st.markdown("#### Treinos diários até a prova")
+    if st.button("Gerar treinos diários até a prova"):
+        r = api("POST", f"/plans/{plan['id']}/expand", token=token)
+        if r.status_code == 201:
+            d = r.json()
+            st.success(f"{d['days']} treinos gerados ({d['start']} → {d['end']}, TSS total {d['tss_total']}).")
+            st.rerun()
+        else:
+            st.error(r.text)
+
+    wl = api("GET", f"/plans/{plan['id']}/workouts", token=token)
+    daily = wl.json() if wl.status_code == 200 else []
+    if daily:
+        daily = sorted(daily, key=lambda x: x["planned_date"])
+        st.dataframe(pd.DataFrame([
+            {"Data": w["planned_date"], "Tipo": w["workout_type"],
+             "Min": round((w.get("planned_duration_s") or 0) / 60),
+             "TSS": w.get("planned_tss")}
+            for w in daily
+        ]), hide_index=True, use_container_width=True)
+        sel = st.selectbox("Baixar treino do dia", [w["planned_date"] for w in daily])
+        chosen = next((w for w in daily if w["planned_date"] == sel), None)
+        if chosen:
+            c1, c2 = st.columns(2)
+            for col, ext in ((c1, "zwo"), (c2, "fit")):
+                resp = api("GET", f"/plans/workouts/{chosen['id']}/export.{ext}", token=token)
+                if resp.status_code == 200:
+                    col.download_button(f"⬇️ .{ext}", data=resp.content,
+                                        file_name=f"treino_{sel}.{ext}",
+                                        mime="application/octet-stream", key=f"dl_{ext}_{chosen['id']}")
+
 
 def checkin_tab(token: str) -> None:
     st.subheader("📝 Check-in diário")

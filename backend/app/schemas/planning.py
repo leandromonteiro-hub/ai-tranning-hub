@@ -6,7 +6,7 @@ from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import BlockType
+from app.models.enums import BlockType, WorkoutType
 
 
 class PlanGenerateRequest(BaseModel):
@@ -55,3 +55,13 @@ class PlanExpandResult(BaseModel):
     tss_total: float
     start: str
     end: str
+
+
+class PlannedWorkoutRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    planned_date: date
+    workout_type: WorkoutType
+    planned_duration_s: int | None = None
+    planned_tss: float | None = None
+    description: str | None = None

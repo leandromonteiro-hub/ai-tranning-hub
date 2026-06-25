@@ -147,6 +147,24 @@ async def test_expand_is_tenant_isolated(env):
     assert rb.status_code == 404, rb.text
 
 
+async def test_list_plan_workouts(env):
+    start, race, weeks = _two_future_weeks()
+    plan_id = await _seed_plan(env.maker, env.ids["A"], start=start, race=race, weeks=weeks)
+    h = {"Authorization": f"Bearer {await _token(env.client, 'a@example.com')}"}
+    exp = await env.client.post(f"/api/v1/plans/{plan_id}/expand", headers=h)
+    assert exp.status_code == 201, exp.text
+    lst = await env.client.get(f"/api/v1/plans/{plan_id}/workouts", headers=h)
+    assert lst.status_code == 200, lst.text
+    rows = lst.json()
+    assert len(rows) == exp.json()["days"]
+    assert rows == sorted(rows, key=lambda r: r["planned_date"])
+    assert all(r["workout_type"] and r["id"] for r in rows)
+    # Athlete B sees none of A's daily workouts.
+    hb = {"Authorization": f"Bearer {await _token(env.client, 'b@example.com')}"}
+    lst_b = await env.client.get(f"/api/v1/plans/{plan_id}/workouts", headers=hb)
+    assert lst_b.status_code == 200 and lst_b.json() == []
+
+
 async def test_expand_race_in_past_returns_400(env):
     today = date.today()
     past = today - timedelta(days=2)

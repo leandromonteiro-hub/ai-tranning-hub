@@ -16,6 +16,7 @@ from app.repositories.base import TenantRepository
 from app.schemas.planning import (
     PlanExpandResult,
     PlanGenerateRequest,
+    PlannedWorkoutRead,
     TrainingPlanRead,
 )
 from app.services.planning.plan_expander import expand_plan_to_daily
@@ -74,6 +75,23 @@ async def expand_plan(
     if result.get("error") == "race_past":
         raise HTTPException(status_code=400, detail="A prova já ocorreu ou não tem data")
     return PlanExpandResult(**result)
+
+
+@router.get("/{plan_id}/workouts", response_model=list[PlannedWorkoutRead])
+async def list_plan_workouts(
+    plan_id: uuid.UUID,
+    ctx: TenantContext = Depends(get_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    """List the daily planned workouts generated from a plan (ordered by date)."""
+    rows = (await db.execute(
+        select(WorkoutPlanned).where(
+            WorkoutPlanned.athlete_id == ctx.athlete_id,
+            WorkoutPlanned.source_plan_id == plan_id,
+            WorkoutPlanned.deleted_at.is_(None),
+        ).order_by(WorkoutPlanned.planned_date)
+    )).scalars().all()
+    return [PlannedWorkoutRead.model_validate(r) for r in rows]
 
 
 async def _planned_workout(db, ctx, workout_planned_id) -> StructuredWorkout:
