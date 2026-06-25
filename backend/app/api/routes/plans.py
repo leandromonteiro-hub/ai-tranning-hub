@@ -12,7 +12,12 @@ from app.core.database import get_db
 from app.core.tenant import TenantContext
 from app.models.training_plan import TrainingPlan
 from app.repositories.base import TenantRepository
-from app.schemas.planning import PlanGenerateRequest, TrainingPlanRead
+from app.schemas.planning import (
+    PlanExpandResult,
+    PlanGenerateRequest,
+    TrainingPlanRead,
+)
+from app.services.planning.plan_expander import expand_plan_to_daily
 from app.services.planning.plan_service import generate_plan
 
 router = APIRouter(prefix="/plans", tags=["plans"])
@@ -49,6 +54,22 @@ async def list_plans(
         await db.refresh(p, attribute_names=["blocks", "weeks"])
         out.append(TrainingPlanRead.model_validate(p))
     return out
+
+
+@router.post("/{plan_id}/expand", response_model=PlanExpandResult, status_code=201)
+async def expand_plan(
+    plan_id: uuid.UUID,
+    ctx: TenantContext = Depends(get_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate one structured planned workout per day from the periodized plan
+    until the race (rule-based, idempotent)."""
+    result = await expand_plan_to_daily(db, ctx, ctx.athlete_id, plan_id)
+    if result.get("error") == "not_found":
+        raise HTTPException(status_code=404, detail="Plano não encontrado")
+    if result.get("error") == "race_past":
+        raise HTTPException(status_code=400, detail="A prova já ocorreu ou não tem data")
+    return PlanExpandResult(**result)
 
 
 @router.get("/{plan_id}", response_model=TrainingPlanRead)

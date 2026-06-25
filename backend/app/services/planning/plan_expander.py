@@ -124,3 +124,80 @@ def _daily_from(d: date, w: StructuredWorkout, wtype: WorkoutType) -> DailyPlann
         description=analysis.describe(w),
         structure=w.model_dump(),
     )
+
+
+async def expand_plan_to_daily(session, ctx, athlete_id, plan_id) -> dict:
+    """Persist one structured planned workout per training day for ``plan_id``.
+
+    Idempotent: drops the rows previously generated from this plan
+    (``source_plan_id == plan_id``) and recreates them; rows with a NULL
+    ``source_plan_id`` (manual workouts / recommendations) are never touched.
+    Tenant-scoped via ``athlete_id``. Returns a result dict, or ``{"error": ...}``
+    so the caller can map it to an HTTP status.
+    """
+    from datetime import date as _date
+
+    from sqlalchemy import delete, select
+
+    from app.models.training_plan import TrainingPlan, TrainingWeek
+    from app.models.workout import WorkoutPlanned
+    from app.repositories.metrics_repo import FtpRepository
+    from app.services.ai.profile_context import fetch_profile
+
+    plan = (await session.execute(
+        select(TrainingPlan).where(
+            TrainingPlan.id == plan_id,
+            TrainingPlan.athlete_id == athlete_id,
+            TrainingPlan.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+    if plan is None:
+        return {"error": "not_found"}
+    today = _date.today()
+    if plan.race_date is None or plan.race_date < today:
+        return {"error": "race_past"}
+
+    weeks_rows = (await session.execute(
+        select(TrainingWeek)
+        .where(TrainingWeek.plan_id == plan_id)
+        .order_by(TrainingWeek.week_index)
+    )).scalars().all()
+    weeks = [
+        WeekSpec(w.week_start, w.block_type, w.planned_tss or 0.0, bool(w.is_recovery_week))
+        for w in weeks_rows
+    ]
+
+    ftp = await FtpRepository(session, ctx).value_on(today, athlete_id) or 200.0
+
+    # Rest days/week derive from the athlete profile (7 - weekly_days), else 1.
+    profile = await fetch_profile(session, athlete_id)
+    rest = 1
+    if profile is not None and profile.weekly_days:
+        rest = max(0, min(3, 7 - int(profile.weekly_days)))
+
+    days = allocate_days(
+        weeks, ftp=ftp, race_date=plan.race_date, rest_per_week=rest, today=today
+    )
+
+    # Idempotent replace: drop this plan's existing daily rows, recreate.
+    await session.execute(
+        delete(WorkoutPlanned).where(
+            WorkoutPlanned.athlete_id == athlete_id,
+            WorkoutPlanned.source_plan_id == plan_id,
+        )
+    )
+    for d in days:
+        session.add(WorkoutPlanned(
+            athlete_id=athlete_id, created_by=athlete_id,
+            planned_date=d.planned_date, name=d.structure.get("name", "Treino"),
+            workout_type=d.workout_type, planned_duration_s=d.planned_duration_s,
+            planned_tss=d.planned_tss, structure=d.structure, description=d.description,
+            source_plan_id=plan_id,
+        ))
+    await session.flush()
+    return {
+        "days": len(days),
+        "tss_total": round(sum(d.planned_tss for d in days), 1),
+        "start": str(min((d.planned_date for d in days), default=today)),
+        "end": str(max((d.planned_date for d in days), default=today)),
+    }

@@ -48,3 +48,10 @@ class TrainingPlanRead(BaseModel):
     source: str
     blocks: list[TrainingBlockRead] = []
     weeks: list[TrainingWeekRead] = []
+
+
+class PlanExpandResult(BaseModel):
+    days: int
+    tss_total: float
+    start: str
+    end: str
