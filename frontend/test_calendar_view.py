@@ -111,3 +111,17 @@ def test_calendar_html_escapes_name():
 def test_detail_html_empty_and_present():
     assert detail_html(None) == ""
     assert "<svg" in detail_html(_STRUCT)
+
+
+def test_calendar_html_marks_selected_day():
+    week = week_dates(date(2026, 6, 25))
+    by_date = {
+        "2026-06-24": {"id": "a", "name": "Endurance", "workout_type": "ENDURANCE",
+                       "planned_duration_s": 3600, "planned_tss": 60, "structure": _STRUCT},
+        "2026-06-25": {"id": "b", "name": "VO2 4x4", "workout_type": "VO2MAX",
+                       "planned_duration_s": 3600, "planned_tss": 90, "structure": _STRUCT},
+    }
+    html = calendar_html(week, by_date, {}, today=date(2026, 6, 25),
+                         selected="2026-06-24")
+    assert "cell sel" in html               # the chosen day carries the highlight
+    assert html.count('"cell sel"') == 1    # exactly one cell highlighted

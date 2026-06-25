@@ -373,21 +373,27 @@ def _render_calendar(token: str, daily: list[dict]) -> None:
         st.session_state["plan_week_offset"] += 1
         st.rerun()
 
+    # Day selection drives the detail panel and the highlighted cell. A per-week
+    # selectbox key keeps Streamlit from snapping the choice back on rerun and
+    # lets us read the current selection before rendering the (static) grid.
+    opts = [d.isoformat() for d in week if by_date.get(d.isoformat())]
+    sel = None
+    if opts:
+        key = f"day_sel_{week[0].isoformat()}"
+        if key not in st.session_state:
+            st.session_state[key] = today.isoformat() if today.isoformat() in opts else opts[0]
+        sel = st.session_state[key]
+
     components.html(
-        cv.calendar_html(week, by_date, completed, today),
+        cv.calendar_html(week, by_date, completed, today, selected=sel),
         height=cv.calendar_height(), scrolling=False,
     )
 
-    # Day selection drives the detail panel (the grid above is a static render).
-    opts = [d.isoformat() for d in week if by_date.get(d.isoformat())]
     if opts:
-        prev = st.session_state.get("plan_sel_date")
-        idx = opts.index(prev) if prev in opts else 0
         sel = st.selectbox(
-            "Ver treino do dia", opts, index=idx,
+            "Ver treino do dia", opts, key=key,
             format_func=lambda iso: _day_option_label(iso, by_date),
         )
-        st.session_state["plan_sel_date"] = sel
         _render_day_detail(token, by_date[sel], completed.get(sel, []), sel)
 
 

@@ -207,13 +207,17 @@ def _adherence_cls(plan_tss: float | None, actual_tss: float | None) -> tuple[st
     return ("bad", f"✗ {round(actual_tss)}")
 
 
-def _day_cell_html(d: date, w: dict | None, acts: list[dict], today: date) -> str:
+def _day_cell_html(
+    d: date, w: dict | None, acts: list[dict], today: date, selected: str | None = None
+) -> str:
     is_today = d == today
+    is_sel = selected is not None and d.isoformat() == selected
+    klass = (" today" if is_today else "") + (" sel" if is_sel else "")
     tag = '<span class="t">HOJE</span>' if is_today else ""
     head = f'<div class="daynum"><span class="d">{d.day}</span>{tag}</div>'
     if not w:
         return (
-            f'<div class="cell rest{" today" if is_today else ""}">{head}'
+            f'<div class="cell rest{klass}">{head}'
             f'<div class="rest-label"><span class="ricon">🛌</span>Descanso</div></div>'
         )
     segs = flatten_structure(w.get("structure"))
@@ -229,7 +233,7 @@ def _day_cell_html(d: date, w: dict | None, acts: list[dict], today: date) -> st
         if cls:
             pill = f'<span class="pill {cls}">{text}</span>'
     return (
-        f'<div class="cell{" today" if is_today else ""}">{head}'
+        f'<div class="cell{klass}">{head}'
         f'<div class="wk">'
         f'<div class="wk-head"><span class="dot" style="background:{ZONE_COLORS[zone]}"></span>'
         f'<span class="wk-name">{name}</span></div>'
@@ -262,6 +266,7 @@ body{background:transparent;color:#1f2733;
   padding:11px 11px 12px;display:flex;flex-direction:column;gap:8px;
   box-shadow:0 1px 2px rgba(20,30,50,.04)}
 .cell.today{border-color:#2f6fed;box-shadow:0 0 0 2px rgba(47,111,237,.16)}
+.cell.sel{border-color:#2f6fed;box-shadow:0 0 0 3px rgba(47,111,237,.40)}
 .cell.rest{background:#f7f9fb;border-style:dashed}
 .daynum{display:flex;align-items:center;justify-content:space-between}
 .daynum .d{font-size:14px;font-weight:700}
@@ -290,21 +295,32 @@ body{background:transparent;color:#1f2733;
 
 
 def calendar_height() -> int:
-    """Pixel height for the Streamlit component iframe holding the grid."""
-    return 320
+    """Pixel height for the Streamlit component iframe holding the grid.
+
+    Sized to fit the summary line, weekday row, a full-height day card and the
+    zone legend without clipping (scrolling is disabled in the component).
+    """
+    return 360
 
 
 def calendar_html(
-    week: list[date], by_date: dict, completed: dict, today: date
+    week: list[date], by_date: dict, completed: dict, today: date,
+    selected: str | None = None,
 ) -> str:
-    """Full self-contained HTML document for one week's calendar grid."""
+    """Full self-contained HTML document for one week's calendar grid.
+
+    ``selected`` (ISO date) gets a highlighted ring so the grid stays in sync
+    with the day chosen for the detail panel.
+    """
     plan_tss = sum((by_date.get(d.isoformat()) or {}).get("planned_tss") or 0 for d in week)
     act_tss = sum(
         c.get("tss") or 0 for d in week for c in completed.get(d.isoformat(), [])
     )
     dows = "".join(f'<div class="dow">{n}</div>' for n in _WEEKDAYS_PT)
     cells = "".join(
-        _day_cell_html(d, by_date.get(d.isoformat()), completed.get(d.isoformat(), []), today)
+        _day_cell_html(
+            d, by_date.get(d.isoformat()), completed.get(d.isoformat(), []), today, selected
+        )
         for d in week
     )
     legend = "".join(
