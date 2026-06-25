@@ -58,15 +58,17 @@ async def generate_recommendation(
     safety = evaluate_safety(twin.snapshot)
     log.info("guardrails_evaluated", extra=safety.as_dict())
 
+    # Current periodization block (drives both the workout and the signals panel).
+    block = (
+        await TrainingWeekRepository(session, ctx).block_on(target_date, athlete_id)
+        or BlockType.BASE
+    )
+
     # Structured workout (deterministic, inherits the guardrail risk posture).
     ftp_watts = await FtpRepository(session, ctx).value_on(target_date, athlete_id)
     structured_workout = None
     workout_description = None
     if ftp_watts:
-        block = (
-            await TrainingWeekRepository(session, ctx).block_on(target_date, athlete_id)
-            or BlockType.BASE
-        )
         workout = build_for(block, safety.risk_level, ftp_watts)
         structured_workout = workout.model_dump(mode="json")
         # Deterministic breakdown (total time, rest times, IF, TSS) for the athlete.
@@ -96,6 +98,7 @@ async def generate_recommendation(
     )
 
     # 4. Render versioned template + logged LLM call
+    methodology = profile_context.twin_seed_summary(profile)
     template_version, template_body = prompts.ACTIVE_TEMPLATES[kind] if kind in prompts.ACTIVE_TEMPLATES else (1, prompts.DAILY_WORKOUT_TEMPLATE)
     prompt = prompts.render_daily_workout(
         twin=twin.summary,
@@ -103,7 +106,7 @@ async def generate_recommendation(
         evidence=evidence_text,
         knowledge=knowledge_text,
         profile=profile_context.profile_summary(profile),
-        methodology=profile_context.twin_seed_summary(profile),
+        methodology=methodology,
         question=query if not safety.block_original else (
             query + "\n\nNOTE: guardrails flagged HIGH risk — you MUST recommend a "
             "conservative recovery-oriented alternative only."
@@ -131,7 +134,7 @@ async def generate_recommendation(
         question=question,
         summary=_summary(llm.text, safety),
         physiological_objective=_objective(safety),
-        block_relation="Derived from current CTL/ATL/TSB state; see twin snapshot.",
+        block_relation=f"Alinhado ao bloco atual ({block.value}) e ao estado de forma (CTL/ATL/TSB).",
         rationale=llm.text if llm.success else "LLM unavailable; conservative default applied.",
         adjust_if_tired="If more fatigued than the snapshot indicates, drop to Z1-Z2 "
         "endurance or take full rest; never push intensity on a high-fatigue day.",
@@ -142,6 +145,7 @@ async def generate_recommendation(
             "template_version": template_version,
             "structured_workout": structured_workout,
             "workout_description": workout_description,
+            "signals": _signals(twin.snapshot, methodology, block, ftp_watts),
         },
         risk_level=safety.risk_level,
         risk_flags=safety.as_dict(),
@@ -159,6 +163,26 @@ async def generate_recommendation(
     await session.flush()
 
     return rec
+
+
+def _signals(snapshot, methodology: str, block, ftp_watts) -> dict:
+    """Traceable inputs that informed the recommendation, surfaced to the
+    athlete for transparency (which form/profile signals drove today's call)."""
+    def _r(v):
+        return round(v, 1) if isinstance(v, (int, float)) else None
+
+    return {
+        "form": {
+            "ctl": _r(snapshot.ctl),
+            "atl": _r(snapshot.atl),
+            "tsb": _r(snapshot.tsb),
+            "ramp_rate_7d": _r(snapshot.ramp_rate_7d),
+            "monotony": _r(snapshot.monotony),
+        },
+        "methodology": methodology,
+        "block": block.value if block is not None else None,
+        "ftp_watts": round(ftp_watts) if ftp_watts else None,
+    }
 
 
 def _confidence(risk: RiskLevel, has_evidence: bool) -> tuple[float, str]:

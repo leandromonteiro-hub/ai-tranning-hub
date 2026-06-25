@@ -64,3 +64,7 @@ async def test_recommendation_blocked_without_anamnese_then_allowed(client):
     assert (await client.put("/api/v1/athletes/me/profile", headers=h, json=body)).status_code == 200
     ok = await client.post("/api/v1/recommendations", headers=h, json={"kind": "daily_workout"})
     assert ok.status_code == 201, ok.text
+    # Transparency: the recommendation carries the signals that informed it.
+    signals = ok.json()["payload"]["signals"]
+    assert "form" in signals and {"ctl", "atl", "tsb"} <= set(signals["form"])
+    assert "block" in signals and "methodology" in signals

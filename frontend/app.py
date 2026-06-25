@@ -157,6 +157,25 @@ def recommendations_tab(token: str, anamnese_ok: bool = True) -> None:
         color = {"LOW": "🟢", "MODERATE": "🟡", "HIGH": "🔴"}.get(risk, "⚪")
         st.markdown(f"### {color} Risco: {risk}  ·  Confiança: {rec.get('confidence')}")
         st.write(rec["summary"])
+
+        sig = (rec.get("payload") or {}).get("signals") or {}
+        if sig:
+            with st.expander("🔍 Baseado em (sinais que embasaram esta recomendação)", expanded=True):
+                form = sig.get("form") or {}
+                ctl, atl, tsb = form.get("ctl"), form.get("atl"), form.get("tsb")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Fitness (CTL)", round(ctl) if ctl is not None else "—")
+                c2.metric("Fadiga (ATL)", round(atl) if atl is not None else "—")
+                c3.metric("Forma (TSB)", round(tsb) if tsb is not None else "—")
+                if tsb is not None:
+                    st.caption(f"Estado: {iv.form_reading(ctl or 0, atl or 0, tsb)}")
+                cc = st.columns(2)
+                cc[0].markdown(f"**Bloco atual:** {sig.get('block') or '—'}")
+                cc[1].markdown(f"**FTP usado:** {sig.get('ftp_watts') or '—'} W")
+                meth = sig.get("methodology")
+                if meth and meth != "n/d":
+                    st.markdown(f"**Metodologia (perfil reverso real):** {meth}")
+
         with st.expander("Justificativa, evidências e ajustes"):
             st.write("**Objetivo fisiológico:**", rec.get("physiological_objective"))
             st.write("**Relação com o bloco:**", rec.get("block_relation"))
