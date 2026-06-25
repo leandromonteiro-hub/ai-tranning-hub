@@ -13,6 +13,7 @@ from datetime import date, timedelta
 import httpx
 import pandas as pd
 import streamlit as st
+import calendar_view as cv
 
 API = os.environ.get("STREAMLIT_API_BASE_URL", "http://localhost:8000/api/v1")
 
@@ -241,6 +242,9 @@ def _current_phase(plan: dict) -> dict | None:
     return None
 
 
+_WEEKDAYS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
+
+
 def plan_tab(token: str) -> None:
     st.subheader("Plano de treino periodizado")
     resp = api("GET", "/races", token=token)
@@ -292,7 +296,7 @@ def plan_tab(token: str) -> None:
             st.write(f"- **{b['block_type']}**: {b['start_date']} → {b['end_date']} — {b.get('focus') or ''}")
 
     st.divider()
-    st.markdown("#### Treinos diários até a prova")
+    st.markdown("#### 📅 Calendário de treinos")
     if st.button("Gerar treinos diários até a prova"):
         r = api("POST", f"/plans/{plan['id']}/expand", token=token)
         if r.status_code == 201:
@@ -304,24 +308,107 @@ def plan_tab(token: str) -> None:
 
     wl = api("GET", f"/plans/{plan['id']}/workouts", token=token)
     daily = wl.json() if wl.status_code == 200 else []
-    if daily:
-        daily = sorted(daily, key=lambda x: x["planned_date"])
-        st.dataframe(pd.DataFrame([
-            {"Data": w["planned_date"], "Tipo": w["workout_type"],
-             "Min": round((w.get("planned_duration_s") or 0) / 60),
-             "TSS": w.get("planned_tss")}
-            for w in daily
-        ]), hide_index=True, use_container_width=True)
-        sel = st.selectbox("Baixar treino do dia", [w["planned_date"] for w in daily])
-        chosen = next((w for w in daily if w["planned_date"] == sel), None)
-        if chosen:
-            c1, c2 = st.columns(2)
-            for col, ext in ((c1, "zwo"), (c2, "fit")):
-                resp = api("GET", f"/plans/workouts/{chosen['id']}/export.{ext}", token=token)
-                if resp.status_code == 200:
-                    col.download_button(f"⬇️ .{ext}", data=resp.content,
-                                        file_name=f"treino_{sel}.{ext}",
-                                        mime="application/octet-stream", key=f"dl_{ext}_{chosen['id']}")
+    if not daily:
+        st.info("Nenhum treino diário ainda. Clique acima para gerar.")
+        return
+    _render_calendar(token, daily)
+
+
+def _render_calendar(token: str, daily: list[dict]) -> None:
+    by_date = {w["planned_date"]: w for w in daily}
+    dates = sorted(by_date)
+    plan_start = date.fromisoformat(dates[0])
+    plan_end = date.fromisoformat(dates[-1])
+
+    # Completed workouts across the plan window (actual overlay).
+    cw = api("GET", "/workouts", token=token, params={"start": dates[0], "end": dates[-1]})
+    completed: dict[str, list[dict]] = {}
+    if cw.status_code == 200:
+        for c in cw.json():
+            completed.setdefault(c["workout_date"], []).append(c)
+
+    if "plan_week_offset" not in st.session_state:
+        st.session_state["plan_week_offset"] = 0
+    today = date.today()
+    anchor = today + timedelta(weeks=st.session_state["plan_week_offset"])
+    if anchor < plan_start:
+        anchor = plan_start
+    if anchor > plan_end:
+        anchor = plan_end
+    week = cv.week_dates(anchor)
+
+    nav1, nav2, nav3, nav4 = st.columns([1, 1, 1, 3])
+    if nav1.button("◀ Semana"):
+        st.session_state["plan_week_offset"] -= 1
+        st.rerun()
+    if nav2.button("Hoje"):
+        st.session_state["plan_week_offset"] = 0
+        st.rerun()
+    if nav3.button("Semana ▶"):
+        st.session_state["plan_week_offset"] += 1
+        st.rerun()
+    week_plan = sum((by_date.get(d.isoformat()) or {}).get("planned_tss") or 0 for d in week)
+    week_act = sum(c.get("tss") or 0 for d in week for c in completed.get(d.isoformat(), []))
+    nav4.markdown(
+        f"**{week[0].strftime('%d/%m')} – {week[6].strftime('%d/%m')}** · "
+        f"plan {round(week_plan)} TSS · feito {round(week_act)} TSS"
+    )
+
+    cols = st.columns(7)
+    for i, d in enumerate(week):
+        iso = d.isoformat()
+        with cols[i]:
+            st.markdown(f"**{'🔵 ' if d == today else ''}{_WEEKDAYS[i]} {d.day}**")
+            w = by_date.get(iso)
+            if w:
+                ch = cv.profile_chart(cv.flatten_structure(w.get("structure")), mini=True)
+                if ch is not None:
+                    st.altair_chart(ch, use_container_width=True)
+                st.caption(f"{w['workout_type']} · {round(w.get('planned_tss') or 0)} TSS")
+                acts = completed.get(iso, [])
+                if d <= today and acts:
+                    act_tss = sum(c.get("tss") or 0 for c in acts)
+                    emoji, _ = cv.adherence(w.get("planned_tss"), act_tss)
+                    dur = round(sum(c.get("duration_s") or 0 for c in acts) / 60)
+                    st.caption(f"{emoji} {round(act_tss)} TSS · {dur}min")
+                if st.button("ver", key=f"day_{iso}"):
+                    st.session_state["plan_sel_date"] = iso
+            else:
+                st.caption("descanso")
+
+    sel = st.session_state.get("plan_sel_date")
+    if sel and sel in by_date:
+        _render_day_detail(token, by_date[sel], completed.get(sel, []), sel)
+
+
+def _render_day_detail(token: str, w: dict, acts: list[dict], iso: str) -> None:
+    st.divider()
+    d = date.fromisoformat(iso)
+    st.markdown(
+        f"### {d.strftime('%d/%m')} · {w['workout_type']} · "
+        f"{round((w.get('planned_duration_s') or 0) / 60)}min · {round(w.get('planned_tss') or 0)} TSS"
+    )
+    ch = cv.profile_chart(cv.flatten_structure(w.get("structure")), mini=False)
+    if ch is not None:
+        st.altair_chart(ch, use_container_width=True)
+    for line in cv.interval_lines(w.get("structure")):
+        st.write(f"- {line}")
+    if acts:
+        act_tss = sum(c.get("tss") or 0 for c in acts)
+        dur = round(sum(c.get("duration_s") or 0 for c in acts) / 60)
+        ifs = [c.get("intensity_factor") for c in acts if c.get("intensity_factor")]
+        emoji, _ = cv.adherence(w.get("planned_tss"), act_tss)
+        if_txt = f" · IF {max(ifs):.2f}" if ifs else ""
+        st.info(f"{emoji} Realizado: {round(act_tss)} TSS · {dur}min{if_txt}")
+    c1, c2 = st.columns(2)
+    for col, ext in ((c1, "zwo"), (c2, "fit")):
+        resp = api("GET", f"/plans/workouts/{w['id']}/export.{ext}", token=token)
+        if resp.status_code == 200:
+            col.download_button(
+                f"⬇️ .{ext}", data=resp.content,
+                file_name=f"treino_{iso}.{ext}",
+                mime="application/octet-stream", key=f"dl_{ext}_{w['id']}",
+            )
 
 
 def checkin_tab(token: str) -> None:
