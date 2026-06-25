@@ -159,6 +159,23 @@ def week_dates(anchor: date) -> list[date]:
     return [monday + timedelta(days=i) for i in range(7)]
 
 
+def block_label_for_week(blocks: list[dict], week: list[date]) -> str:
+    """Label ("Bloco BUILD") of the periodization block overlapping `week`, ''."""
+    if not blocks or not week:
+        return ""
+    wk_start, wk_end = week[0], week[-1]
+    for b in blocks:
+        try:
+            bs = date.fromisoformat(b["start_date"])
+            be = date.fromisoformat(b["end_date"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if bs <= wk_end and be >= wk_start:  # block overlaps the displayed week
+            bt = b.get("block_type") or ""
+            return f"Bloco {bt}" if bt else ""
+    return ""
+
+
 # ── Visual layer: self-contained HTML/CSS/SVG (rendered in a Streamlit
 #    component iframe). All functions below are pure string builders. ──────────
 
@@ -255,10 +272,12 @@ body{background:transparent;color:#1f2733;
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,Arial,sans-serif;
   -webkit-font-smoothing:antialiased}
 .wrap{max-width:100%}
-.summary{display:flex;gap:18px;align-items:baseline;font-size:12.5px;color:#8a93a3;
-  font-weight:600;margin-bottom:12px}
+.summary{display:flex;gap:14px;align-items:center;font-size:12.5px;color:#8a93a3;
+  font-weight:600;margin-bottom:12px;flex-wrap:wrap}
 .summary .rng{font-size:14px;font-weight:700;color:#1f2733}
 .summary b{color:#1f2733;font-weight:700}
+.blk{font-size:10.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;
+  color:#3a4658;background:#eef1f5;border:1px solid #e3e7ec;padding:3px 9px;border-radius:20px}
 .grid{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
 .dow{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
   color:#8a93a3;padding:0 2px 6px}
@@ -305,17 +324,24 @@ def calendar_height() -> int:
 
 def calendar_html(
     week: list[date], by_date: dict, completed: dict, today: date,
-    selected: str | None = None,
+    selected: str | None = None, block_label: str = "",
 ) -> str:
     """Full self-contained HTML document for one week's calendar grid.
 
     ``selected`` (ISO date) gets a highlighted ring so the grid stays in sync
-    with the day chosen for the detail panel.
+    with the day chosen for the detail panel. ``block_label`` (e.g. "Bloco
+    BUILD") shows the current periodization block in the week summary.
     """
     plan_tss = sum((by_date.get(d.isoformat()) or {}).get("planned_tss") or 0 for d in week)
     act_tss = sum(
         c.get("tss") or 0 for d in week for c in completed.get(d.isoformat(), [])
     )
+    blk = f'<span class="blk">{_html.escape(block_label)}</span>' if block_label else ""
+    adh = ""
+    if act_tss > 0 and plan_tss > 0:
+        pct = round(act_tss / plan_tss * 100)
+        cls = "good" if pct >= 90 else "warn" if pct >= 50 else "bad"
+        adh = f'<span class="pill {cls}">{pct}% adesão</span>'
     dows = "".join(f'<div class="dow">{n}</div>' for n in _WEEKDAYS_PT)
     cells = "".join(
         _day_cell_html(
@@ -331,9 +357,9 @@ def calendar_html(
     return (
         f"<!doctype html><html><head><meta charset='utf-8'>"
         f"<style>{_CALENDAR_CSS}</style></head><body><div class='wrap'>"
-        f'<div class="summary"><span class="rng">{_fmt_range(week)}</span>'
+        f'<div class="summary"><span class="rng">{_fmt_range(week)}</span>{blk}'
         f'<span>Planejado <b>{round(plan_tss)} TSS</b></span>'
-        f'<span>Realizado <b>{round(act_tss)} TSS</b></span></div>'
+        f'<span>Realizado <b>{round(act_tss)} TSS</b></span>{adh}</div>'
         f'<div class="grid">{dows}</div>'
         f'<div class="grid" style="margin-top:6px">{cells}</div>'
         f'<div class="legend">{legend}</div>'

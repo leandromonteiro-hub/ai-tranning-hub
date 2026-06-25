@@ -2,6 +2,7 @@ from datetime import date
 
 from calendar_view import (
     adherence,
+    block_label_for_week,
     calendar_html,
     detail_html,
     flatten_structure,
@@ -111,6 +112,33 @@ def test_calendar_html_escapes_name():
 def test_detail_html_empty_and_present():
     assert detail_html(None) == ""
     assert "<svg" in detail_html(_STRUCT)
+
+
+def test_block_label_for_week_overlap():
+    week = week_dates(date(2026, 6, 25))  # 22..28 jun
+    blocks = [
+        {"block_type": "BASE", "start_date": "2026-06-01", "end_date": "2026-06-21"},
+        {"block_type": "BUILD", "start_date": "2026-06-22", "end_date": "2026-07-12"},
+    ]
+    assert block_label_for_week(blocks, week) == "Bloco BUILD"
+    assert block_label_for_week([], week) == ""
+    # a week before any block -> no label
+    early = week_dates(date(2026, 5, 1))
+    assert block_label_for_week(blocks, early) == ""
+
+
+def test_calendar_html_week_adherence_and_block():
+    week = week_dates(date(2026, 6, 25))
+    by_date = {"2026-06-24": {"id": "a", "name": "Endurance", "workout_type": "ENDURANCE",
+                              "planned_duration_s": 3600, "planned_tss": 100, "structure": _STRUCT}}
+    completed = {"2026-06-24": [{"tss": 95, "duration_s": 3600}]}
+    html = calendar_html(week, by_date, completed, today=date(2026, 6, 28),
+                         block_label="Bloco BUILD")
+    assert "Bloco BUILD" in html
+    assert "95% adesão" in html          # 95/100
+    # a future week with no actuals shows no adherence pill
+    future = calendar_html(week, by_date, {}, today=date(2026, 6, 1))
+    assert "adesão" not in future
 
 
 def test_calendar_html_marks_selected_day():

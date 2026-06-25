@@ -304,7 +304,7 @@ def plan_tab(token: str) -> None:
     wl = api("GET", f"/plans/{plan['id']}/workouts", token=token)
     daily = wl.json() if wl.status_code == 200 else []
     if daily:
-        _render_calendar(token, daily)
+        _render_calendar(token, daily, plan)
     else:
         st.info("Seu plano ainda não tem treinos diários.")
         _expand_daily_button(token, plan["id"], "Gerar treinos diários até a prova", "gen_daily")
@@ -333,7 +333,7 @@ def plan_tab(token: str) -> None:
         _plan_generation_controls(token)
 
 
-def _render_calendar(token: str, daily: list[dict]) -> None:
+def _render_calendar(token: str, daily: list[dict], plan: dict | None = None) -> None:
     by_date = {w["planned_date"]: w for w in daily}
     dates = sorted(by_date)
     plan_start = date.fromisoformat(dates[0])
@@ -384,8 +384,10 @@ def _render_calendar(token: str, daily: list[dict]) -> None:
             st.session_state[key] = today.isoformat() if today.isoformat() in opts else opts[0]
         sel = st.session_state[key]
 
+    block_label = cv.block_label_for_week((plan or {}).get("blocks", []), week)
     components.html(
-        cv.calendar_html(week, by_date, completed, today, selected=sel),
+        cv.calendar_html(week, by_date, completed, today, selected=sel,
+                         block_label=block_label),
         height=cv.calendar_height(), scrolling=False,
     )
 
