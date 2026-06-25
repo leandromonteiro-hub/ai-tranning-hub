@@ -159,6 +159,8 @@ async def test_list_plan_workouts(env):
     assert len(rows) == exp.json()["days"]
     assert rows == sorted(rows, key=lambda r: r["planned_date"])
     assert all(r["workout_type"] and r["id"] for r in rows)
+    assert all(r.get("structure") for r in rows)
+    assert all(r.get("name") for r in rows)
     # Athlete B sees none of A's daily workouts.
     hb = {"Authorization": f"Bearer {await _token(env.client, 'b@example.com')}"}
     lst_b = await env.client.get(f"/api/v1/plans/{plan_id}/workouts", headers=hb)

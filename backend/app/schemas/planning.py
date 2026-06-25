@@ -61,7 +61,9 @@ class PlannedWorkoutRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     planned_date: date
+    name: str
     workout_type: WorkoutType
     planned_duration_s: int | None = None
     planned_tss: float | None = None
     description: str | None = None
+    structure: dict | None = None
