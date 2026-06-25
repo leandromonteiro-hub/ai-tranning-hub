@@ -33,7 +33,7 @@ Separa a lógica de calendário do `app.py` (que já está grande). Contém:
 - `adherence(plan_tss: float | None, actual_tss: float | None) -> tuple[str, str]` — `(emoji_cor, rótulo)`. Verde `✅` se `actual >= 0.9*plan`; amarelo `🟡` se `0.5*plan <= actual < 0.9*plan`; vermelho `🔴` se `actual < 0.5*plan`. Sem planejado ou sem realizado → `("", "")`.
 
 **Render (importa `altair` preguiçosamente dentro da função para não exigir altair nos testes):**
-- `profile_chart(segments: list[dict], *, mini: bool = True)` — `alt.Chart` de área em degraus (`mark_area(interpolate="step-after")`), x = minutos acumulados, y = %FTP, `color` por zona (escala categórica com paleta fixa `ZONE_COLORS`). `mini=True`: sem eixos/legenda, altura pequena (célula). `mini=False`: com eixos e bandas de zona (painel de detalhe). `segments == []` → retorna `None` (caller mostra só rótulos).
+- `profile_chart(segments: list[dict], *, mini: bool = True)` — `alt.Chart` de área em degraus (`mark_area(interpolate="step-after")`), x = minutos acumulados, y = %FTP, `color` por zona (escala categórica com paleta fixa `ZONE_COLORS`). `mini=True`: sem eixos/legenda, altura pequena (célula). `mini=False`: com eixos e bandas de zona (painel de detalhe). `segments == []` → retorna `None` (caller mostra só rótulos). **Nota de implementação:** Implementado com `mark_bar` (barras em degraus de 0 até %FTP), não `mark_area`; segmento `open`→0.45 (zona 1). O plano de implementação é a referência canônica.
 
 ### Zonas (Coggan, por %FTP)
 | Zona | Nome | Faixa %FTP | Cor (sugestão) |

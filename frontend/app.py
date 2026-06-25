@@ -320,6 +320,12 @@ def _render_calendar(token: str, daily: list[dict]) -> None:
     plan_start = date.fromisoformat(dates[0])
     plan_end = date.fromisoformat(dates[-1])
 
+    span_key = f"{dates[0]}_{dates[-1]}"
+    if st.session_state.get("plan_span_key") != span_key:
+        st.session_state["plan_span_key"] = span_key
+        st.session_state["plan_week_offset"] = 0
+        st.session_state.pop("plan_sel_date", None)
+
     # Completed workouts across the plan window (actual overlay).
     cw = api("GET", "/workouts", token=token, params={"start": dates[0], "end": dates[-1]})
     completed: dict[str, list[dict]] = {}
@@ -385,8 +391,11 @@ def _render_day_detail(token: str, w: dict, acts: list[dict], iso: str) -> None:
     st.divider()
     d = date.fromisoformat(iso)
     st.markdown(
-        f"### {d.strftime('%d/%m')} · {w['workout_type']} · "
-        f"{round((w.get('planned_duration_s') or 0) / 60)}min · {round(w.get('planned_tss') or 0)} TSS"
+        f"### {d.strftime('%d/%m')} · {w.get('name') or w['workout_type']}"
+    )
+    st.caption(
+        f"{w['workout_type']} · {round((w.get('planned_duration_s') or 0) / 60)}min · "
+        f"{round(w.get('planned_tss') or 0)} TSS"
     )
     ch = cv.profile_chart(cv.flatten_structure(w.get("structure")), mini=False)
     if ch is not None:

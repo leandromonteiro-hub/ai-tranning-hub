@@ -131,7 +131,7 @@ def adherence(plan_tss: float | None, actual_tss: float | None) -> tuple[str, st
     """
     if not plan_tss or actual_tss is None:
         return ("", "")
-    ratio = actual_tss / plan_tss if plan_tss else 0
+    ratio = actual_tss / plan_tss
     if ratio >= 0.9:
         emoji = "✅"
     elif ratio >= 0.5:
