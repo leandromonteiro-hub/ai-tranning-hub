@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_tenant
 from app.core.database import get_db
+from app.core.logging import get_logger
 from app.core.tenant import TenantContext
 from app.schemas.onboarding import (
     IngestionSummary,
@@ -24,6 +25,7 @@ from app.services.ingestion.tp_export_importer import import_athlete_folder
 from app.services.metrics.recompute import recompute_load_metrics
 
 router = APIRouter(prefix="/imports", tags=["imports"])
+log = get_logger(__name__)
 
 
 @router.post("/upload", response_model=list[ImportedFileRead])
@@ -40,15 +42,26 @@ async def upload_files(
     async Celery import job (see app.jobs.import_job).
     """
     results = []
+    workouts_created = 0
     for f in files:
         data = await f.read()
         result = await import_file(
             db, ctx, ctx.athlete_id, f.filename or "upload.bin", data, source=source
         )
         results.append(result.imported_file)
+        workouts_created += result.workouts_created
 
     if recompute:
         await recompute_load_metrics(db, ctx, ctx.athlete_id)
+        # Keep the reverse-engineered profile (twin_seed / FTP / power curve)
+        # fresh so the intelligence panel and recommendations reflect the newly
+        # imported work. Only when new workouts landed; a profile-build failure
+        # must never fail the import itself.
+        if workouts_created > 0:
+            try:
+                await generate_and_persist_profile(db, ctx, ctx.athlete_id)
+            except Exception:
+                log.exception("profile refresh after upload failed; import kept")
 
     return [ImportedFileRead.model_validate(r) for r in results]
 
