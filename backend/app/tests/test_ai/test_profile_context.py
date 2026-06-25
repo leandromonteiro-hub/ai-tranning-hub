@@ -1,7 +1,20 @@
 from datetime import date
 
 from app.models.athlete import AthleteProfile
-from app.services.ai.profile_context import anamnese_complete, profile_summary
+from app.services.ai.profile_context import (
+    anamnese_complete,
+    profile_summary,
+    twin_seed_summary,
+)
+
+_TWIN = {
+    "intensity_split": {"label": "pyramidal", "z1_pct": 0.70, "z2_pct": 0.27, "z3_pct": 0.03},
+    "power_curve_bests": {"5 s": 1227.0, "20 min": 331.0},
+    "block_summary": [
+        {"block_type": "build"}, {"block_type": "build"}, {"block_type": "recovery"},
+    ],
+    "data_richness": {"label": "alta", "score": 0.91},
+}
 
 
 def _full() -> AthleteProfile:
@@ -32,3 +45,20 @@ def test_profile_summary_includes_key_fields():
 
 def test_profile_summary_none_is_nd():
     assert profile_summary(None) == "n/d"
+
+
+def test_twin_seed_summary_surfaces_methodology():
+    p = _full()
+    p.twin_seed = _TWIN
+    s = twin_seed_summary(p)
+    assert "pyramidal" in s
+    assert "Z1 70%" in s and "Z2 27%" in s and "Z3 3%" in s
+    assert "1227W" in s and "331W" in s
+    assert "3 blocos" in s and "2× build" in s   # periodization pattern
+    assert "0.91" in s
+
+
+def test_twin_seed_summary_nd_when_missing():
+    assert twin_seed_summary(None) == "n/d"
+    p = _full()  # profile without twin_seed
+    assert twin_seed_summary(p) == "n/d"

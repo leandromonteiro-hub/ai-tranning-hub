@@ -103,6 +103,7 @@ async def generate_recommendation(
         evidence=evidence_text,
         knowledge=knowledge_text,
         profile=profile_context.profile_summary(profile),
+        methodology=profile_context.twin_seed_summary(profile),
         question=query if not safety.block_original else (
             query + "\n\nNOTE: guardrails flagged HIGH risk — you MUST recommend a "
             "conservative recovery-oriented alternative only."

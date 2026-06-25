@@ -17,6 +17,11 @@ DAILY_WORKOUT_TEMPLATE = """\
 Athlete profile (anamnese — who this athlete is):
 {profile}
 
+Athlete training methodology (reverse-engineered from the athlete's real
+training history — match their established intensity distribution, periodization
+patterns and power profile unless safety requires otherwise):
+{methodology}
+
 Athlete digital-twin snapshot:
 {twin}
 
@@ -36,18 +41,20 @@ Produce a single recommendation as structured guidance including: the
 physiological objective, how it relates to the current block and target race,
 the supporting evidence, a confidence level (0-1) with justification, identified
 risks, how to scale down if the athlete is more tired, and how to scale down if
-they have less time available today. Tailor it to the athlete profile above
-(experience, goals, weekly availability, injuries/limitations).
+they have less time available today. Tailor it to the athlete profile and to the
+athlete's established training methodology above (intensity distribution,
+periodization, power profile, experience, goals, availability, injuries).
 """
 
 
 def render_daily_workout(
     twin: str, safety: str, evidence: str, knowledge: str, question: str,
-    profile: str = "n/d",
+    profile: str = "n/d", methodology: str = "n/d",
 ) -> str:
     return DAILY_WORKOUT_TEMPLATE.format(
-        profile=profile, twin=twin, safety=safety, evidence=evidence,
-        knowledge=knowledge, question=question or "Recommend today's workout.",
+        profile=profile, methodology=methodology, twin=twin, safety=safety,
+        evidence=evidence, knowledge=knowledge,
+        question=question or "Recommend today's workout.",
     )
 
 
@@ -57,5 +64,5 @@ def template_hash(template: str) -> str:
 
 # Registry of active templates (name -> (version, body)).
 ACTIVE_TEMPLATES = {
-    "daily_workout": (2, DAILY_WORKOUT_TEMPLATE),
+    "daily_workout": (3, DAILY_WORKOUT_TEMPLATE),
 }

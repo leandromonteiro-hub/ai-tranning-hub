@@ -7,6 +7,7 @@ prompt so recommendations are personalised.
 from __future__ import annotations
 
 import uuid
+from collections import Counter
 from datetime import date
 
 from sqlalchemy import select
@@ -35,6 +36,47 @@ def anamnese_complete(profile: AthleteProfile | None) -> bool:
     if profile is None:
         return False
     return all(getattr(profile, f) not in (None, "") for f in REQUIRED_FIELDS)
+
+
+def twin_seed_summary(profile: AthleteProfile | None) -> str:
+    """One-line summary of the reverse-engineered training profile (twin_seed)
+    for the LLM prompt. Returns 'n/d' until the analysis has been run.
+
+    Surfaces the athlete's real intensity distribution, power-curve bests,
+    periodization pattern and data richness so recommendations match how this
+    athlete actually trains — not a generic template.
+    """
+    seed = getattr(profile, "twin_seed", None) if profile is not None else None
+    if not seed:
+        return "n/d"
+    parts: list[str] = []
+
+    split = seed.get("intensity_split")
+    if split:
+        z1 = round((split.get("z1_pct") or 0) * 100)
+        z2 = round((split.get("z2_pct") or 0) * 100)
+        z3 = round((split.get("z3_pct") or 0) * 100)
+        label = split.get("label") or ""
+        parts.append(f"Distribuição de intensidade {label}: Z1 {z1}% / Z2 {z2}% / Z3 {z3}%")
+
+    bests = seed.get("power_curve_bests") or seed.get("best_marks")
+    if isinstance(bests, dict) and bests:
+        marks = ", ".join(f"{k} {round(float(v))}W" for k, v in bests.items())
+        parts.append(f"Melhores marcas de potência: {marks}")
+
+    blocks = seed.get("block_summary") or []
+    if blocks:
+        types = Counter(
+            (b.get("block_type") or "").lower() for b in blocks if b.get("block_type")
+        )
+        pattern = ", ".join(f"{n}× {t}" for t, n in types.most_common())
+        parts.append(f"Periodização real ({len(blocks)} blocos): {pattern}")
+
+    dr = seed.get("data_richness") or {}
+    if dr.get("score") is not None:
+        parts.append(f"Riqueza dos dados: {dr.get('label') or ''} ({float(dr['score']):.2f})")
+
+    return " · ".join(parts) if parts else "n/d"
 
 
 def profile_summary(profile: AthleteProfile | None) -> str:
