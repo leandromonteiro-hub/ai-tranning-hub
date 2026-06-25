@@ -14,6 +14,7 @@ import httpx
 import pandas as pd
 import streamlit as st
 import calendar_view as cv
+import streamlit.components.v1 as components
 
 API = os.environ.get("STREAMLIT_API_BASE_URL", "http://localhost:8000/api/v1")
 
@@ -242,76 +243,94 @@ def _current_phase(plan: dict) -> dict | None:
     return None
 
 
-_WEEKDAYS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
 
 
-def plan_tab(token: str) -> None:
-    st.subheader("Plano de treino periodizado")
+def _plan_generation_controls(token: str) -> None:
+    """Race selection + 'generate plan' button (reused on the empty state and
+    inside the management expander)."""
     resp = api("GET", "/races", token=token)
     races = resp.json() if resp.status_code == 200 else []
-    if races:
-        labels = {_fmt_race_label(r): r for r in races}
-        choice = st.selectbox("Prova-alvo", list(labels.keys()))
-        priority = st.selectbox("Prioridade do plano", ["A", "B", "C"], index=0, key="plan_prio")
-        if st.button("Gerar plano"):
-            race = labels[choice]
-            body = {
-                "name": f"Plano — {race['name']}",
-                "race_date": race["race_date"],
-                "target_race_id": race["id"],
-                "priority": priority,
-            }
-            resp = api("POST", "/plans/generate", token=token, json=body)
-            if resp.status_code == 201:
-                st.success("Plano gerado.")
-                st.rerun()
-            else:
-                st.error(resp.text)
-    else:
-        st.info("Cadastre uma prova na aba Provas para gerar um plano.")
-
-    plan = _latest_plan(token)
-    if not plan:
-        st.info("Nenhum plano ainda. Gere um acima.")
+    if not races:
+        st.info("Cadastre uma prova na aba 🏁 Provas para gerar um plano.")
         return
-
-    st.markdown(
-        f"**{plan['name']}** · {plan['total_weeks']} semanas · "
-        f"CTL inicial: {plan.get('start_ctl')}"
-    )
-    weeks = sorted(plan.get("weeks", []), key=lambda w: w["week_index"])
-    if weeks:
-        df = pd.DataFrame([
-            {"Semana": w["week_index"], "Início": w["week_start"], "Bloco": w["block_type"],
-             "TSS planejado": w["planned_tss"], "Foco": w.get("focus") or "",
-             "Deload": "🛌" if w.get("is_recovery_week") else ""}
-            for w in weeks
-        ])
-        st.bar_chart(df.set_index("Início")[["TSS planejado"]])
-        st.dataframe(df, hide_index=True, use_container_width=True)
-    blocks = sorted(plan.get("blocks", []), key=lambda b: b["order_index"])
-    if blocks:
-        st.markdown("**Blocos:**")
-        for b in blocks:
-            st.write(f"- **{b['block_type']}**: {b['start_date']} → {b['end_date']} — {b.get('focus') or ''}")
-
-    st.divider()
-    st.markdown("#### 📅 Calendário de treinos")
-    if st.button("Gerar treinos diários até a prova"):
-        r = api("POST", f"/plans/{plan['id']}/expand", token=token)
+    labels = {_fmt_race_label(r): r for r in races}
+    choice = st.selectbox("Prova-alvo", list(labels.keys()))
+    priority = st.selectbox("Prioridade do plano", ["A", "B", "C"], index=0, key="plan_prio")
+    if st.button("Gerar plano"):
+        race = labels[choice]
+        body = {
+            "name": f"Plano — {race['name']}",
+            "race_date": race["race_date"],
+            "target_race_id": race["id"],
+            "priority": priority,
+        }
+        r = api("POST", "/plans/generate", token=token, json=body)
         if r.status_code == 201:
-            d = r.json()
-            st.success(f"{d['days']} treinos gerados ({d['start']} → {d['end']}, TSS total {d['tss_total']}).")
+            st.success("Plano gerado.")
             st.rerun()
         else:
             st.error(r.text)
 
+
+def _expand_daily_button(token: str, plan_id: str, label: str, key: str) -> None:
+    """Trigger the idempotent daily-expansion endpoint."""
+    if st.button(label, key=key):
+        r = api("POST", f"/plans/{plan_id}/expand", token=token)
+        if r.status_code == 201:
+            d = r.json()
+            st.success(
+                f"{d['days']} treinos gerados ({d['start']} → {d['end']}, "
+                f"TSS total {d['tss_total']})."
+            )
+            st.rerun()
+        else:
+            st.error(r.text)
+
+
+def plan_tab(token: str) -> None:
+    plan = _latest_plan(token)
+    if not plan:
+        st.subheader("📅 Plano de treino")
+        st.info("Você ainda não tem um plano. Gere um abaixo para ver seu calendário de treinos.")
+        _plan_generation_controls(token)
+        return
+
+    # The calendar is the star of the landing page.
+    st.subheader("📅 Calendário de treinos")
+    st.caption(
+        f"{plan['name']} · {plan['total_weeks']} semanas · CTL inicial {plan.get('start_ctl')}"
+    )
+
     wl = api("GET", f"/plans/{plan['id']}/workouts", token=token)
     daily = wl.json() if wl.status_code == 200 else []
-    if not daily:
-        st.info("Nenhum treino diário ainda. Clique acima para gerar.")
-        return
-    _render_calendar(token, daily)
+    if daily:
+        _render_calendar(token, daily)
+    else:
+        st.info("Seu plano ainda não tem treinos diários.")
+        _expand_daily_button(token, plan["id"], "Gerar treinos diários até a prova", "gen_daily")
+
+    # Secondary detail, tucked below the calendar.
+    with st.expander("📊 Periodização (semanas e blocos)"):
+        weeks = sorted(plan.get("weeks", []), key=lambda w: w["week_index"])
+        if weeks:
+            df = pd.DataFrame([
+                {"Semana": w["week_index"], "Início": w["week_start"], "Bloco": w["block_type"],
+                 "TSS planejado": w["planned_tss"], "Foco": w.get("focus") or "",
+                 "Deload": "🛌" if w.get("is_recovery_week") else ""}
+                for w in weeks
+            ])
+            st.bar_chart(df.set_index("Início")[["TSS planejado"]])
+            st.dataframe(df, hide_index=True, use_container_width=True)
+        blocks = sorted(plan.get("blocks", []), key=lambda b: b["order_index"])
+        if blocks:
+            st.markdown("**Blocos:**")
+            for b in blocks:
+                st.write(f"- **{b['block_type']}**: {b['start_date']} → {b['end_date']} — {b.get('focus') or ''}")
+
+    with st.expander("⚙️ Gerar ou regenerar plano"):
+        _expand_daily_button(token, plan["id"], "Regenerar treinos diários até a prova", "regen_daily")
+        st.divider()
+        _plan_generation_controls(token)
 
 
 def _render_calendar(token: str, daily: list[dict]) -> None:
@@ -343,7 +362,7 @@ def _render_calendar(token: str, daily: list[dict]) -> None:
         anchor = plan_end
     week = cv.week_dates(anchor)
 
-    nav1, nav2, nav3, nav4 = st.columns([1, 1, 1, 3])
+    nav1, nav2, nav3, _ = st.columns([1, 1, 1, 5])
     if nav1.button("◀ Semana"):
         st.session_state["plan_week_offset"] -= 1
         st.rerun()
@@ -353,38 +372,30 @@ def _render_calendar(token: str, daily: list[dict]) -> None:
     if nav3.button("Semana ▶"):
         st.session_state["plan_week_offset"] += 1
         st.rerun()
-    week_plan = sum((by_date.get(d.isoformat()) or {}).get("planned_tss") or 0 for d in week)
-    week_act = sum(c.get("tss") or 0 for d in week for c in completed.get(d.isoformat(), []))
-    nav4.markdown(
-        f"**{week[0].strftime('%d/%m')} – {week[6].strftime('%d/%m')}** · "
-        f"plan {round(week_plan)} TSS · feito {round(week_act)} TSS"
+
+    components.html(
+        cv.calendar_html(week, by_date, completed, today),
+        height=cv.calendar_height(), scrolling=False,
     )
 
-    cols = st.columns(7)
-    for i, d in enumerate(week):
-        iso = d.isoformat()
-        with cols[i]:
-            st.markdown(f"**{'🔵 ' if d == today else ''}{_WEEKDAYS[i]} {d.day}**")
-            w = by_date.get(iso)
-            if w:
-                ch = cv.profile_chart(cv.flatten_structure(w.get("structure")), mini=True)
-                if ch is not None:
-                    st.altair_chart(ch, use_container_width=True)
-                st.caption(f"{w['workout_type']} · {round(w.get('planned_tss') or 0)} TSS")
-                acts = completed.get(iso, [])
-                if d <= today and acts:
-                    act_tss = sum(c.get("tss") or 0 for c in acts)
-                    emoji, _ = cv.adherence(w.get("planned_tss"), act_tss)
-                    dur = round(sum(c.get("duration_s") or 0 for c in acts) / 60)
-                    st.caption(f"{emoji} {round(act_tss)} TSS · {dur}min")
-                if st.button("ver", key=f"day_{iso}"):
-                    st.session_state["plan_sel_date"] = iso
-            else:
-                st.caption("descanso")
-
-    sel = st.session_state.get("plan_sel_date")
-    if sel and sel in by_date:
+    # Day selection drives the detail panel (the grid above is a static render).
+    opts = [d.isoformat() for d in week if by_date.get(d.isoformat())]
+    if opts:
+        prev = st.session_state.get("plan_sel_date")
+        idx = opts.index(prev) if prev in opts else 0
+        sel = st.selectbox(
+            "Ver treino do dia", opts, index=idx,
+            format_func=lambda iso: _day_option_label(iso, by_date),
+        )
+        st.session_state["plan_sel_date"] = sel
         _render_day_detail(token, by_date[sel], completed.get(sel, []), sel)
+
+
+def _day_option_label(iso: str, by_date: dict) -> str:
+    d = date.fromisoformat(iso)
+    w = by_date.get(iso, {})
+    wtype = cv.TYPE_LABEL.get(w.get("workout_type", ""), w.get("workout_type", ""))
+    return f"{cv._WEEKDAYS_PT[d.weekday()]} {d.strftime('%d/%m')} · {w.get('name') or wtype}"
 
 
 def _render_day_detail(token: str, w: dict, acts: list[dict], iso: str) -> None:
@@ -397,9 +408,9 @@ def _render_day_detail(token: str, w: dict, acts: list[dict], iso: str) -> None:
         f"{w['workout_type']} · {round((w.get('planned_duration_s') or 0) / 60)}min · "
         f"{round(w.get('planned_tss') or 0)} TSS"
     )
-    ch = cv.profile_chart(cv.flatten_structure(w.get("structure")), mini=False)
-    if ch is not None:
-        st.altair_chart(ch, use_container_width=True)
+    detail = cv.detail_html(w.get("structure"))
+    if detail:
+        components.html(detail, height=cv.detail_height(), scrolling=False)
     for line in cv.interval_lines(w.get("structure")):
         st.write(f"- {line}")
     if acts:
@@ -519,9 +530,11 @@ def dashboard(token: str) -> None:
     if not anamnese_ok:
         st.warning("Complete sua anamnese (aba 🩺 Anamnese) para liberar as recomendações.")
 
-    tab_anamnese, tab_load, tab_import, tab_checkin, tab_races, tab_plan, tab_rec = st.tabs(
-        ["🩺 Anamnese", "📈 Forma & Carga", "📥 Importar", "📝 Check-in", "🏁 Provas", "📅 Plano", "🧠 Recomendações"]
+    tab_plan, tab_anamnese, tab_load, tab_import, tab_checkin, tab_races, tab_rec = st.tabs(
+        ["📅 Plano", "🩺 Anamnese", "📈 Forma & Carga", "📥 Importar", "📝 Check-in", "🏁 Provas", "🧠 Recomendações"]
     )
+    with tab_plan:
+        plan_tab(token)
     with tab_anamnese:
         anamnese_tab(token)
     with tab_load:
@@ -532,8 +545,6 @@ def dashboard(token: str) -> None:
         checkin_tab(token)
     with tab_races:
         races_tab(token)
-    with tab_plan:
-        plan_tab(token)
     with tab_rec:
         recommendations_tab(token, anamnese_ok)
 

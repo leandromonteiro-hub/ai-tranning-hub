@@ -2,7 +2,15 @@
 
 **Data:** 2026-06-25
 **Branch:** `feat/daily-plan-expansion`
-**Status:** aprovado pelo usuário (aguardando review do spec escrito)
+**Status:** implementado e validado pelo usuário.
+
+> **Atualização v2 (pós-validação visual):** o render nativo Streamlit+Altair (abordagem A)
+> ficou "primário" demais. Repaginado para **HTML/CSS/SVG self-contained** renderizado via
+> `st.components.v1.html` (cartões por dia, tijolinhos SVG por zona, selo de adesão, legenda),
+> mantendo navegação/seleção/download como widgets nativos. Builders puros (`workout_svg`,
+> `calendar_html`, `detail_html`) testados (10 testes). Além disso, **📅 Plano virou a primeira
+> aba** (landing padrão) e o `plan_tab` foi reordenado para o calendário no topo, com
+> periodização e geração de plano recolhidas em expanders.
 
 ## Problema
 

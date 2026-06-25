@@ -2,10 +2,12 @@ from datetime import date
 
 from calendar_view import (
     adherence,
+    calendar_html,
+    detail_html,
     flatten_structure,
     interval_lines,
-    profile_chart,
     week_dates,
+    workout_svg,
     zone_of,
 )
 
@@ -71,15 +73,41 @@ def test_week_dates_monday_to_sunday():
     assert len(wd) == 7
 
 
-def test_profile_chart_none_when_empty():
-    assert profile_chart([]) is None
+def test_workout_svg_empty_and_zone_colors():
+    assert workout_svg([]) == ""
+    svg = workout_svg(flatten_structure(_STRUCT))
+    assert svg.startswith("<svg")
+    assert svg.count("<rect") == 8          # one bar per flattened segment
+    assert "#ff8a3d" in svg                 # zone 5 (VO2) color present
 
 
-def test_profile_chart_builds_for_segments():
-    segs = flatten_structure(_STRUCT)
-    ch = profile_chart(segs, mini=False)
-    assert ch is not None
-    spec = ch.to_dict()  # raises if the Vega-Lite spec is malformed
-    assert isinstance(spec, dict)
-    mini = profile_chart(segs, mini=True)
-    assert mini.to_dict()["height"] == 70
+def test_calendar_html_renders_week():
+    week = week_dates(date(2026, 6, 25))    # Mon 22 .. Sun 28
+    by_date = {"2026-06-25": {
+        "id": "x", "name": "VO2 4x4", "workout_type": "VO2MAX",
+        "planned_duration_s": 3600, "planned_tss": 90, "structure": _STRUCT,
+    }}
+    completed = {"2026-06-22": [{"tss": 80, "duration_s": 3600}]}
+    # athlete did Monday's (rest) day work; the planned day is today (the 25th)
+    html = calendar_html(week, by_date, completed, today=date(2026, 6, 25))
+    assert html.count('class="cell') == 7   # 7 day cells
+    assert "Descanso" in html               # days without a planned workout
+    assert "HOJE" in html                   # today's tag
+    assert "VO2 4x4" in html                # the planned workout name
+    assert "<svg" in html                   # the profile is drawn
+
+
+def test_calendar_html_escapes_name():
+    week = week_dates(date(2026, 6, 25))
+    by_date = {"2026-06-25": {
+        "id": "x", "name": "A & B <hack>", "workout_type": "ENDURANCE",
+        "planned_duration_s": 600, "planned_tss": 50, "structure": _STRUCT,
+    }}
+    html = calendar_html(week, by_date, {}, today=date(2026, 6, 25))
+    assert "<hack>" not in html
+    assert "&amp; B" in html
+
+
+def test_detail_html_empty_and_present():
+    assert detail_html(None) == ""
+    assert "<svg" in detail_html(_STRUCT)
