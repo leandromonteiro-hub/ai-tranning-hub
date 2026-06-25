@@ -4,6 +4,7 @@ from calendar_view import (
     adherence,
     flatten_structure,
     interval_lines,
+    profile_chart,
     week_dates,
     zone_of,
 )
@@ -68,3 +69,17 @@ def test_week_dates_monday_to_sunday():
     assert wd[0] == date(2026, 6, 22)   # segunda
     assert wd[6] == date(2026, 6, 28)   # domingo
     assert len(wd) == 7
+
+
+def test_profile_chart_none_when_empty():
+    assert profile_chart([]) is None
+
+
+def test_profile_chart_builds_for_segments():
+    segs = flatten_structure(_STRUCT)
+    ch = profile_chart(segs, mini=False)
+    assert ch is not None
+    spec = ch.to_dict()  # raises if the Vega-Lite spec is malformed
+    assert isinstance(spec, dict)
+    mini = profile_chart(segs, mini=True)
+    assert mini.to_dict()["height"] == 70

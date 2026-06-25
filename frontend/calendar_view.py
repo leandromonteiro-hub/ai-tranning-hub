@@ -145,3 +145,50 @@ def week_dates(anchor: date) -> list[date]:
     """The 7 dates (Mon..Sun) of the ISO week containing `anchor`."""
     monday = anchor - timedelta(days=anchor.weekday())
     return [monday + timedelta(days=i) for i in range(7)]
+
+
+def profile_chart(segments: list[dict], *, mini: bool = True):
+    """Stepped power-profile bars colored by Coggan zone. None if no segments.
+
+    Altair is imported here (not at module top) so the pure helpers above stay
+    importable in a minimal test environment.
+    """
+    if not segments:
+        return None
+    import altair as alt
+    import pandas as pd
+
+    rows = []
+    t = 0.0
+    for seg in segments:
+        start = t / 60
+        t += seg["duration_s"]
+        end = t / 60
+        rows.append({
+            "start": start, "end": end,
+            "pct": round(seg["pct"] * 100),
+            "zone": ZONE_NAMES[seg["zone"]],
+        })
+    df = pd.DataFrame(rows)
+    domain = list(ZONE_NAMES.values())
+    rng = [ZONE_COLORS[z] for z in ZONE_NAMES]
+
+    x_axis = None if mini else alt.Axis(title="min")
+    y_axis = None if mini else alt.Axis(title="% FTP")
+    legend = None if mini else alt.Legend(title="Zona")
+
+    return (
+        alt.Chart(df)
+        .mark_bar()
+        .encode(
+            x=alt.X("start:Q", axis=x_axis),
+            x2="end:Q",
+            y=alt.Y("pct:Q", axis=y_axis),
+            color=alt.Color(
+                "zone:N",
+                scale=alt.Scale(domain=domain, range=rng),
+                legend=legend,
+            ),
+        )
+        .properties(height=70 if mini else 240)
+    )
