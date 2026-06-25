@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
 revision = "0007"
 down_revision = "0006"
@@ -17,7 +18,7 @@ depends_on = None
 def upgrade() -> None:
     op.add_column(
         "workouts_planned",
-        sa.Column("source_plan_id", sa.Uuid(), sa.ForeignKey("training_plans.id"), nullable=True),
+        sa.Column("source_plan_id", PG_UUID(as_uuid=True), sa.ForeignKey("training_plans.id"), nullable=True),
     )
     op.create_index("ix_workouts_planned_source_plan_id", "workouts_planned", ["source_plan_id"])
 
