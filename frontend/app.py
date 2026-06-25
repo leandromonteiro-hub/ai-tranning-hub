@@ -14,6 +14,7 @@ import httpx
 import pandas as pd
 import streamlit as st
 import calendar_view as cv
+import intelligence_view as iv
 import streamlit.components.v1 as components
 
 API = os.environ.get("STREAMLIT_API_BASE_URL", "http://localhost:8000/api/v1")
@@ -75,10 +76,36 @@ def _sample_workouts_sidebar(token: str) -> None:
                     )
 
 
+def _fetch_intelligence(token: str) -> dict:
+    r = api("GET", "/athletes/me/intelligence", token=token)
+    return r.json() if r.status_code == 200 else {}
+
+
+def _intelligence_summary(token: str) -> None:
+    """Compact intelligence strip rendered at the top of the landing page."""
+    d = _fetch_intelligence(token)
+    ftp_hist = d.get("ftp_history") or []
+    ftp_cur = ftp_hist[-1]["ftp_watts"] if ftp_hist else None
+    split = (d.get("twin_seed") or {}).get("intensity_split")
+    html = iv.summary_html(d.get("form"), ftp_cur, split)
+    if html:
+        components.html(html, height=iv.summary_height(), scrolling=False)
+
+
 def load_tab(token: str) -> None:
-    st.subheader("CTL (fitness) · ATL (fadiga) · TSB (forma)")
+    st.subheader("📊 Inteligência de treino")
+    d = _fetch_intelligence(token)
+    twin = d.get("twin_seed")
+    components.html(
+        iv.dashboard_html(twin, d.get("ftp_history") or [], d.get("form")),
+        height=iv.dashboard_height(twin), scrolling=True,
+    )
+
+    st.divider()
+    st.markdown("##### Tendência · CTL (fitness) · ATL (fadiga) · TSB (forma)")
     if st.button("Recalcular métricas"):
         api("POST", "/metrics/load/recompute", token=token)
+        st.rerun()
     resp = api("GET", "/metrics/load", token=token)
     rows = resp.json() if resp.status_code == 200 else []
     if rows:
@@ -288,6 +315,7 @@ def _expand_daily_button(token: str, plan_id: str, label: str, key: str) -> None
 
 
 def plan_tab(token: str) -> None:
+    _intelligence_summary(token)
     plan = _latest_plan(token)
     if not plan:
         st.subheader("📅 Plano de treino")

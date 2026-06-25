@@ -50,3 +50,31 @@ class AthleteProfileRead(AthleteProfileBase):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     athlete_id: uuid.UUID
+
+
+class FtpPoint(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    ftp_watts: float
+    valid_from: date
+    valid_to: date | None = None
+    method: str | None = None
+
+
+class FormState(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    metric_date: date
+    ctl: float
+    atl: float
+    tsb: float
+
+
+class AthleteIntelligenceRead(BaseModel):
+    """The computed training intelligence surfaced to the athlete dashboard.
+
+    ``twin_seed`` is the reverse-engineered profile blob (intensity_split,
+    power_curve_bests, block_summary, ftp_timeline, data_richness); null until
+    the analysis has been run.
+    """
+    twin_seed: dict | None = None
+    ftp_history: list[FtpPoint] = []
+    form: FormState | None = None
