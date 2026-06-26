@@ -118,6 +118,30 @@ CURATED_DOCUMENTS: list[KnowledgeDoc] = [
         "prova sem perder fitness. A resposta ao taper é individual — o histórico do "
         "atleta é a melhor referência.",
     ),
+    KnowledgeDoc(
+        "Planejamento de treino individualizado por IA (estudo de caso)",
+        "ai_methodology_research",
+        "Estudo de caso de planejamento de treino individualizado por IA para "
+        "ciclistas de estrada modela a carga a partir do histórico do atleta (TSS, "
+        "CTL/ATL, distribuição por zona) e ajusta a prescrição ao indivíduo em vez de "
+        "um modelo único. Aproveitável para a Training Intelligence Layer: features "
+        "derivadas do próprio histórico, validação contra resposta observada e "
+        "personalização progressiva conforme mais dados chegam. É apoio à decisão "
+        "baseado em dados, não substitui avaliação profissional.",
+        source="https://www.mdpi.com/2076-3417/11/1/313",
+    ),
+    KnowledgeDoc(
+        "Confiança e aceitação de planos de treino gerados por IA",
+        "ai_trust",
+        "A aceitação de planos gerados por IA por atletas recreativos depende de "
+        "explicabilidade (mostrar por que cada treino foi sugerido), transparência "
+        "sobre os dados e sinais usados, controle do usuário (poder ajustar/recusar), "
+        "linguagem clara e não-prescritiva, e validação contra o histórico real. "
+        "Recomendações devem expor os sinais (forma, bloco, metodologia) e permitir "
+        "manter/ajustar a sugestão. Reforça a transição do treinador humano para a IA "
+        "com continuidade respeitosa, sem prometer resultados.",
+        source="https://pmc.ncbi.nlm.nih.gov/articles/PMC11908068/",
+    ),
 ]
 
 
