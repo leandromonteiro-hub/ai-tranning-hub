@@ -221,3 +221,15 @@ async def test_apply_adjustment_isolated_per_tenant(env):
         json={"recommendation_id": str(uuid.uuid4())},
     )
     assert r2.status_code == 404, r2.text
+
+
+async def test_clean_reason_strips_markdown_heading():
+    """The "Motivo:" banner must read as plain text — no leading markdown '#'."""
+    from app.api.routes.plans import _clean_reason
+
+    assert _clean_reason("# Recomendação — Manter 'Endurance Z2'\n\nDetalhe...") == \
+        "Recomendação — Manter 'Endurance Z2'"
+    assert _clean_reason("\n\n##  Título\nresto") == "Título"
+    assert _clean_reason("sem heading") == "sem heading"
+    assert _clean_reason("") == ""
+    assert _clean_reason(None) is None
