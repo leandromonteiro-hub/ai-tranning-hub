@@ -100,7 +100,7 @@ def twin_seed_summary(profile: AthleteProfile | None) -> str:
         rec = per.get("recovery_blocks")
         meso_txt = f", mesos ~{meso}d" if meso else ""
         rec_txt = f", {rec} blocos regen" if rec else ""
-        parts.append(f"Periodização real ({per['n_blocks']} blocos{meso_txt}{rec_txt})")
+        parts.append(f"Padrão de periodização ({per['n_blocks']} blocos{meso_txt}{rec_txt})")
 
     return " · ".join(parts) if parts else "n/d"
 

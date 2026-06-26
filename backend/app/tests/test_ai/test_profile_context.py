@@ -79,7 +79,9 @@ def test_twin_seed_summary_surfaces_taper_terms_periodization():
     out = twin_seed_summary(_P())
     assert "Taper" in out
     assert "sweet" in out
-    assert "Periodização" in out
+    # periodization_summary block now uses the non-duplicative label
+    assert "Padrão de periodização" in out
+    assert "6 blocos" in out
 
 
 def test_twin_seed_summary_omits_absent_methodology_sections():
