@@ -82,13 +82,29 @@ def test_twin_seed_summary_surfaces_taper_terms_periodization():
     assert "Periodização" in out
 
 
-def test_twin_seed_summary_handles_missing_methodology():
+def test_twin_seed_summary_omits_absent_methodology_sections():
+    """Each methodology section appears only when its data is present."""
     from app.services.ai.profile_context import twin_seed_summary
 
-    class _P:
+    class _OnlyIntensity:
         twin_seed = {"intensity_split": {"z1_pct": 0.8, "z2_pct": 0.1, "z3_pct": 0.1,
                                          "label": "polarizado"}}
 
-    out = twin_seed_summary(_P())
-    assert "Taper" not in out  # sem dado de taper, não inventa a seção
+    out = twin_seed_summary(_OnlyIntensity())
+    assert out != "n/d"
+    assert "Taper" not in out
+    assert "Terminologia" not in out
+    assert "polarizado" in out
+
+
+def test_twin_seed_summary_taper_section_stands_alone():
+    """The taper block emits even with no intensity_split — gated on its own data."""
+    from app.services.ai.profile_context import twin_seed_summary
+
+    class _OnlyTaper:
+        twin_seed = {"tapers": [{"race_date": "2025-05-04", "tsb_race": 18.0,
+                                 "weekly_tss_trend": [500.0, 250.0]}]}
+
+    out = twin_seed_summary(_OnlyTaper())
+    assert "Taper" in out
     assert out != "n/d"
