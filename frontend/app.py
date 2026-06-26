@@ -527,6 +527,8 @@ def _render_day_detail(token: str, w: dict, acts: list[dict], iso: str) -> None:
                     else:
                         st.error(a.text)
                 if c2.button("Manter planejado", key=f"keep_{w['id']}"):
+                    api("POST", f"/recommendations/{preview['id']}/decision",
+                        token=token, json={"decision": "REJECTED"})
                     st.session_state.pop(f"adjpreview_{w['id']}", None)
                     st.rerun()
 
