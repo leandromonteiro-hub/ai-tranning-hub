@@ -176,6 +176,22 @@ def block_label_for_week(blocks: list[dict], week: list[date]) -> str:
     return ""
 
 
+def effective_workout(w: dict) -> tuple[dict, bool]:
+    """Return (effective workout, is_adjusted). When an AI override exists, its
+    structure/tss/duration take precedence; the original dict is left intact."""
+    adj = w.get("adjustment")
+    if not adj:
+        return w, False
+    eff = dict(w)
+    if adj.get("structure") is not None:
+        eff["structure"] = adj["structure"]
+    if adj.get("tss") is not None:
+        eff["planned_tss"] = adj["tss"]
+    if adj.get("duration_s") is not None:
+        eff["planned_duration_s"] = adj["duration_s"]
+    return eff, True
+
+
 # ── Visual layer: self-contained HTML/CSS/SVG (rendered in a Streamlit
 #    component iframe). All functions below are pure string builders. ──────────
 
@@ -237,12 +253,14 @@ def _day_cell_html(
             f'<div class="cell rest{klass}">{head}'
             f'<div class="rest-label"><span class="ricon">🛌</span>Descanso</div></div>'
         )
+    w, is_adjusted = effective_workout(w)
     segs = flatten_structure(w.get("structure"))
     zone = dominant_zone(segs)
     name = _html.escape(w.get("name") or "Treino")
     wtype = TYPE_LABEL.get(w.get("workout_type", ""), w.get("workout_type", "Treino"))
     mins = round((w.get("planned_duration_s") or 0) / 60)
     tss = round(w.get("planned_tss") or 0)
+    badge = '<span class="ai-badge">🤖 IA</span>' if is_adjusted else ""
     pill = ""
     if d <= today and acts:
         act_tss = sum(c.get("tss") or 0 for c in acts)
@@ -253,7 +271,7 @@ def _day_cell_html(
         f'<div class="cell{klass}">{head}'
         f'<div class="wk">'
         f'<div class="wk-head"><span class="dot" style="background:{ZONE_COLORS[zone]}"></span>'
-        f'<span class="wk-name">{name}</span></div>'
+        f'<span class="wk-name">{name}</span>{badge}</div>'
         f'<div class="wk-sub">{wtype} · {mins}min</div>'
         f'{workout_svg(segs)}'
         f'<div class="meta"><span class="tss">{tss} TSS</span>{pill}</div>'
@@ -310,6 +328,8 @@ body{background:transparent;color:#1f2733;
   border-top:1px solid #e3e7ec}
 .lg{display:flex;align-items:center;gap:6px;font-size:11px;color:#8a93a3;font-weight:600}
 .lg i{width:11px;height:11px;border-radius:3px;display:inline-block}
+.ai-badge{font-size:9px;font-weight:800;color:#2f6fed;background:rgba(47,111,237,.12);
+  padding:1px 6px;border-radius:20px;margin-left:4px}
 """
 
 

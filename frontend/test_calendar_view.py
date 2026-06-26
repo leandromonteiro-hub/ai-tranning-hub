@@ -141,6 +141,37 @@ def test_calendar_html_week_adherence_and_block():
     assert "adesão" not in future
 
 
+def test_effective_workout_prefers_adjustment():
+    from calendar_view import effective_workout
+    w = {"name": "Sweet Spot", "planned_tss": 80, "planned_duration_s": 3600,
+         "structure": {"elements": [{"intensity": "active", "duration_s": 3600,
+                                     "target": {"type": "power_pct_ftp", "low": 0.9}}]},
+         "adjustment": {"structure": {"elements": []}, "tss": 30, "duration_s": 1800}}
+    eff, is_adj = effective_workout(w)
+    assert is_adj is True
+    assert eff["planned_tss"] == 30
+    assert eff["planned_duration_s"] == 1800
+    assert eff["structure"] == {"elements": []}
+
+
+def test_effective_workout_without_adjustment():
+    from calendar_view import effective_workout
+    w = {"name": "X", "planned_tss": 80, "structure": {"elements": []}}
+    eff, is_adj = effective_workout(w)
+    assert is_adj is False
+    assert eff is w
+
+
+def test_day_cell_shows_ai_badge_when_adjusted():
+    from datetime import date
+    from calendar_view import _day_cell_html
+    w = {"name": "Sweet Spot", "workout_type": "SWEET_SPOT", "planned_tss": 30,
+         "planned_duration_s": 1800, "structure": {"elements": []},
+         "adjustment": {"structure": {"elements": []}, "tss": 30, "duration_s": 1800}}
+    html = _day_cell_html(date(2026, 6, 30), w, [], date(2026, 6, 30))
+    assert "IA" in html
+
+
 def test_calendar_html_marks_selected_day():
     week = week_dates(date(2026, 6, 25))
     by_date = {
