@@ -155,6 +155,31 @@ async def test_adjust_then_apply_then_revert(env):
     assert rev.json()["adjustment"] is None
 
 
+async def test_apply_adjustment_rejects_mismatched_day(env):
+    """A day_adjustment generated for one planned day must not be applied to a
+    different planned day (silent cross-day override). Same tenant → 409."""
+    wid1 = await _seed_planned(
+        env.maker, env.ids["A"], date.today() + timedelta(days=1)
+    )
+    wid2 = await _seed_planned(
+        env.maker, env.ids["A"], date.today() + timedelta(days=3)
+    )
+    h = {"Authorization": f"Bearer {await _token(env.client, 'a@example.com')}"}
+
+    # Generate an adjustment for workout #1
+    adj = await env.client.post(f"/api/v1/plans/workouts/{wid1}/adjust", headers=h)
+    assert adj.status_code == 201, adj.text
+    rec_id = adj.json()["id"]
+
+    # Try to apply workout #1's recommendation onto workout #2 (different day) → 409
+    apply = await env.client.post(
+        f"/api/v1/plans/workouts/{wid2}/apply-adjustment",
+        headers=h,
+        json={"recommendation_id": rec_id},
+    )
+    assert apply.status_code == 409, apply.text
+
+
 async def test_apply_adjustment_isolated_per_tenant(env):
     """Athlete B cannot adjust or apply on a workout that belongs to athlete A (404)."""
     wid = await _seed_planned(

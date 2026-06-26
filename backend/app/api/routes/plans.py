@@ -191,6 +191,9 @@ async def apply_adjustment(
     rec = await RecommendationRepository(db, ctx).get(body.recommendation_id)
     if not rec or rec.kind != "day_adjustment":
         raise HTTPException(status_code=404, detail="Recomendação de ajuste não encontrada")
+    if rec.target_date != row.planned_date:
+        raise HTTPException(status_code=409,
+                            detail="Recomendação não corresponde a este treino.")
     p = rec.payload or {}
     row.adjustment = {
         "structure": p.get("adjusted_structure"),
