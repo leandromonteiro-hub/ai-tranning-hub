@@ -352,7 +352,12 @@ def calendar_html(
     with the day chosen for the detail panel. ``block_label`` (e.g. "Bloco
     BUILD") shows the current periodization block in the week summary.
     """
-    plan_tss = sum((by_date.get(d.isoformat()) or {}).get("planned_tss") or 0 for d in week)
+    plan_tss = 0.0
+    for d in week:
+        wd = by_date.get(d.isoformat())
+        if wd:
+            eff, _ = effective_workout(wd)
+            plan_tss += (eff.get("planned_tss") or 0)
     act_tss = sum(
         c.get("tss") or 0 for d in week for c in completed.get(d.isoformat(), [])
     )

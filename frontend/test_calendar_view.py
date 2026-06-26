@@ -184,3 +184,25 @@ def test_calendar_html_marks_selected_day():
                          selected="2026-06-24")
     assert "cell sel" in html               # the chosen day carries the highlight
     assert html.count('"cell sel"') == 1    # exactly one cell highlighted
+
+
+def test_calendar_html_weekly_tss_uses_effective_workout():
+    """Week total should reflect the adjusted TSS, not the original planned_tss."""
+    week = week_dates(date(2026, 6, 25))
+    by_date = {
+        "2026-06-24": {
+            "id": "a", "name": "Endurance", "workout_type": "ENDURANCE",
+            "planned_duration_s": 3600, "planned_tss": 100, "structure": _STRUCT,
+            "adjustment": {"tss": 60, "duration_s": 2160, "structure": {"elements": []}},
+        },
+        "2026-06-25": {
+            "id": "b", "name": "VO2 4x4", "workout_type": "VO2MAX",
+            "planned_duration_s": 3600, "planned_tss": 90, "structure": _STRUCT,
+            # no adjustment — original TSS applies
+        },
+    }
+    html = calendar_html(week, by_date, {}, today=date(2026, 6, 25))
+    # Effective sum: 60 (adjusted) + 90 (original) = 150
+    assert "150 TSS" in html
+    # The raw original sum (100 + 90 = 190) must NOT appear as planned total
+    assert "190 TSS" not in html

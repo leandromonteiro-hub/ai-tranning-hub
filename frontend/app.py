@@ -485,6 +485,51 @@ def _render_day_detail(token: str, w: dict, acts: list[dict], iso: str) -> None:
                 mime="application/octet-stream", key=f"dl_{ext}_{w['id']}",
             )
 
+    if d >= date.today():
+        st.divider()
+        st.markdown("#### 🤖 Ajustar este treino com a IA")
+        adj = w.get("adjustment")
+        if adj:
+            st.info(f"Treino ajustado pela IA · {round(adj.get('tss') or 0)} TSS. "
+                    f"Motivo: {adj.get('reason') or '—'}")
+            if st.button("↩️ Reverter para o planejado", key=f"revert_{w['id']}"):
+                r = api("DELETE", f"/plans/workouts/{w['id']}/adjustment", token=token)
+                st.rerun() if r.status_code == 200 else st.error(r.text)
+        else:
+            if st.button("Ajustar ao meu estado de hoje", key=f"adjust_{w['id']}"):
+                r = api("POST", f"/plans/workouts/{w['id']}/adjust", token=token)
+                if r.status_code == 201:
+                    st.session_state[f"adjpreview_{w['id']}"] = r.json()
+                else:
+                    st.error(r.text)
+            preview = st.session_state.get(f"adjpreview_{w['id']}")
+            if preview:
+                pl = preview.get("payload") or {}
+                risk = preview["risk_level"]
+                color = {"LOW": "🟢", "MODERATE": "🟡", "HIGH": "🔴"}.get(risk, "⚪")
+                st.markdown(f"**{color} Risco: {risk}** · {preview.get('summary')}")
+                if pl.get("changed"):
+                    st.caption(f"Ajustado: {round(pl.get('adjusted_tss') or 0)} TSS "
+                               f"(planejado {round((pl.get('planned_snapshot') or {}).get('planned_tss') or 0)} TSS)")
+                    detail = cv.detail_html(pl.get("adjusted_structure"))
+                    if detail:
+                        components.html(detail, height=cv.detail_height(), scrolling=False)
+                else:
+                    st.success("Seu estado está alinhado ao planejado — mantenha o treino.")
+                st.write(preview.get("rationale"))
+                c1, c2 = st.columns(2)
+                if pl.get("changed") and c1.button("✅ Aceitar ajuste", key=f"acc_{w['id']}"):
+                    a = api("POST", f"/plans/workouts/{w['id']}/apply-adjustment",
+                            token=token, json={"recommendation_id": preview["id"]})
+                    if a.status_code == 200:
+                        st.session_state.pop(f"adjpreview_{w['id']}", None)
+                        st.rerun()
+                    else:
+                        st.error(a.text)
+                if c2.button("Manter planejado", key=f"keep_{w['id']}"):
+                    st.session_state.pop(f"adjpreview_{w['id']}", None)
+                    st.rerun()
+
 
 def checkin_tab(token: str) -> None:
     st.subheader("📝 Check-in diário")
