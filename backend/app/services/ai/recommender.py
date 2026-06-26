@@ -33,6 +33,8 @@ from app.services.ai.safety_validator import evaluate_safety
 from app.services.knowledge.embedder import embed_text
 from app.services.workout import analysis as workout_analysis
 from app.services.workout.builder import build_for
+from app.services.workout.model import StructuredWorkout
+from app.services.planning import workout_adjuster
 
 log = get_logger(__name__)
 
@@ -162,6 +164,110 @@ async def generate_recommendation(
         session.add(ev)
     await session.flush()
 
+    return rec
+
+
+async def generate_day_adjustment(
+    session: AsyncSession,
+    ctx: TenantContext,
+    athlete_id: uuid.UUID,
+    *,
+    workout_planned,
+) -> AiRecommendation:
+    """Adjust a single planned workout to current form (deterministic), with an
+    LLM-written justification. Seeded by the planned workout, not build_for."""
+    ctx.assert_can_access(athlete_id)
+    target_date = workout_planned.planned_date
+
+    profile = await profile_context.fetch_profile(session, athlete_id)
+    twin = await build_twin(session, ctx, athlete_id, as_of=target_date)
+    safety = evaluate_safety(twin.snapshot)
+
+    block = (
+        await TrainingWeekRepository(session, ctx).block_on(target_date, athlete_id)
+        or BlockType.BASE
+    )
+    ftp_watts = await FtpRepository(session, ctx).value_on(target_date, athlete_id)
+
+    result = workout_adjuster.adjust(workout_planned.structure, safety.risk_level)
+    adjusted_struct = result.adjusted_structure
+    adjusted_tss = None
+    adjusted_duration_s = None
+    if adjusted_struct.get("elements"):
+        sw = StructuredWorkout.model_validate(adjusted_struct)
+        adjusted_duration_s = workout_analysis.total_duration_s(sw)
+        adjusted_tss = workout_analysis.estimated_tss(sw)
+
+    methodology = profile_context.twin_seed_summary(profile)
+    evidence_items = await evidence_builder.collect_evidence(
+        session, ctx, athlete_id, as_of=target_date
+    )
+    evidence_text = "\n".join(f"- {e.description}" for e in evidence_items) or "n/d"
+
+    question = (
+        f"O treino planejado para {target_date} é '{workout_planned.name}'. "
+        f"Estado de forma → risco {safety.risk_level.value}. "
+        f"Resumo do ajuste determinístico: {result.change_summary}. "
+        "Explique, em PT-BR e sem prometer resultados, por que esse ajuste faz "
+        "sentido (ou por que manter o planejado, se não houve mudança), conectando "
+        "à forma atual e à metodologia do atleta."
+    )
+    prompt = prompts.render_daily_workout(
+        twin=twin.summary,
+        safety=f"risk_level={safety.risk_level.value}",
+        evidence=evidence_text,
+        knowledge="n/d",
+        profile=profile_context.profile_summary(profile),
+        methodology=methodology,
+        question=question,
+    )
+    client = LlmClient()
+    llm = client.complete(prompt, system=prompts.SYSTEM_PROMPT)
+    call_log = LlmCallLog(
+        provider=llm.provider, model=llm.model, prompt=prompt, response=llm.text,
+        prompt_tokens=llm.prompt_tokens, completion_tokens=llm.completion_tokens,
+        latency_ms=llm.latency_ms, estimated_cost_usd=llm.estimated_cost_usd,
+        success=llm.success, error_message=llm.error_message,
+    )
+    session.add(call_log)
+    await session.flush()
+
+    template_id = await prompt_store.active_template_id(session, "daily_workout")
+    confidence, conf_rationale = _confidence(safety.risk_level, bool(evidence_items))
+    rec = AiRecommendation(
+        athlete_id=athlete_id, target_date=target_date, kind="day_adjustment",
+        question=question, summary=_summary(llm.text, safety),
+        physiological_objective=_objective(safety),
+        block_relation=f"Ajuste do dia no bloco {block.value} conforme a forma atual.",
+        rationale=llm.text if llm.success else "LLM unavailable; ajuste determinístico aplicado.",
+        adjust_if_tired="Se mais cansado que o snapshot indica, caia para Z1-Z2 ou descanse.",
+        adjust_if_less_time="Com menos tempo, mantenha o bloco principal e corte aquecimento/volume.",
+        payload={
+            "planned_snapshot": {
+                "name": workout_planned.name,
+                "structure": workout_planned.structure,
+                "planned_tss": workout_planned.planned_tss,
+                "planned_duration_s": workout_planned.planned_duration_s,
+                "workout_type": getattr(workout_planned.workout_type, "value",
+                                        workout_planned.workout_type),
+            },
+            "adjusted_structure": adjusted_struct,
+            "adjusted_tss": adjusted_tss,
+            "adjusted_duration_s": adjusted_duration_s,
+            "change_summary": result.change_summary,
+            "changed": result.changed,
+            "signals": _signals(twin.snapshot, methodology, block, ftp_watts),
+            "llm_text": llm.text,
+        },
+        risk_level=safety.risk_level, risk_flags=safety.as_dict(),
+        confidence=confidence, confidence_rationale=conf_rationale,
+        prompt_template_id=template_id, llm_call_id=call_log.id,
+        decision=RecommendationDecision.PENDING,
+    )
+    await RecommendationRepository(session, ctx).add(rec)
+    for ev in evidence_builder.to_models(athlete_id, rec.id, evidence_items):
+        session.add(ev)
+    await session.flush()
     return rec
 
 
