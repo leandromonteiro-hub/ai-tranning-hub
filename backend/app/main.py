@@ -17,7 +17,12 @@ from app.api.routes import (
     recommendations,
     workouts,
 )
-from app.bootstrap import ensure_admin, ensure_pgvector, ensure_prompt_templates
+from app.bootstrap import (
+    ensure_admin,
+    ensure_knowledge,
+    ensure_pgvector,
+    ensure_prompt_templates,
+)
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import AuditMiddleware, RateLimitMiddleware
@@ -32,6 +37,7 @@ async def lifespan(app: FastAPI):
     await ensure_pgvector()
     await ensure_admin()
     await ensure_prompt_templates()
+    await ensure_knowledge()
     yield
     log.info("shutdown")
 

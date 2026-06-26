@@ -53,3 +53,19 @@ async def ensure_prompt_templates() -> None:
             await session.commit()
         except Exception:  # noqa: BLE001 — never block startup on this
             log.warning("prompt_template_seed_failed")
+
+
+async def ensure_knowledge() -> None:
+    """Seed the global training-knowledge base so RAG is never empty.
+
+    Idempotent (ingest skips documents whose title already exists). Never blocks
+    startup — mirrors ensure_prompt_templates."""
+    from app.services.knowledge.knowledge_service import ingest_curated_knowledge
+
+    async with AsyncSessionLocal() as session:
+        try:
+            result = await ingest_curated_knowledge(session)
+            await session.commit()
+            log.info("knowledge_seeded", extra=result)
+        except Exception:  # noqa: BLE001 — never block startup on this
+            log.warning("knowledge_seed_failed")
