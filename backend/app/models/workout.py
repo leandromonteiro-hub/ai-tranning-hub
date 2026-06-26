@@ -125,6 +125,8 @@ class WorkoutPlanned(Base, TenantMixin):
     structure: Mapped[dict | None] = mapped_column(jsonb(), nullable=True)  # interval blocks
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     extra: Mapped[dict | None] = mapped_column(jsonb(), nullable=True)
+    # AI day-adjustment override (reversível). Original fields stay intact.
+    adjustment: Mapped[dict | None] = mapped_column(jsonb(), nullable=True)
     # Optional link to the recommendation that generated this plan (traceability)
     source_recommendation_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("ai_recommendations.id"), nullable=True

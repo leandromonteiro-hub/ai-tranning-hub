@@ -67,3 +67,4 @@ class PlannedWorkoutRead(BaseModel):
     planned_tss: float | None = None
     description: str | None = None
     structure: dict | None = None
+    adjustment: dict | None = None
