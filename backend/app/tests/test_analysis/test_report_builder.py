@@ -334,3 +334,30 @@ class TestContentCoherence:
         portuguese_markers = ["atleta", "treinador", "semana", "potência"]
         matches = sum(1 for w in portuguese_markers if w in report.lower())
         assert matches >= 3, f"Report doesn't appear to be in Portuguese; found {matches}/4 markers"
+
+
+# ---------------------------------------------------------------------------
+# Methodology signals in twin_seed
+# ---------------------------------------------------------------------------
+
+def test_twin_seed_includes_methodology_signals():
+    from datetime import date
+    from app.services.analysis.methodology import Race, TaperWindow
+    from app.services.analysis import report_builder as rb
+
+    # Reusa o helper interno diretamente com objetos mínimos:
+    races = [Race(date=date(2025, 5, 4), name="XCO Cup", evidence="keyword:xco")]
+    tapers = [TaperWindow(race_date=date(2025, 5, 4), ctl_start=80.0, ctl_race=78.0,
+                          atl_race=55.0, tsb_race=23.0,
+                          weekly_tss_trend=[600.0, 450.0, 300.0],
+                          evidence="CTL -2, TSB +23 no dia da prova")]
+    comment_terms = [("sweet", 12), ("limiar", 9), ("z2", 7)]
+
+    seed = rb._build_twin_seed_methodology(races, tapers, comment_terms,
+                                           power_curve_bests={}, blocks=[])
+
+    assert seed["races"][0]["name"] == "XCO Cup"
+    assert seed["tapers"][0]["tsb_race"] == 23.0
+    assert seed["tapers"][0]["weekly_tss_trend"] == [600.0, 450.0, 300.0]
+    assert seed["coach_terms"][:1] == [["sweet", 12]]
+    assert "n_blocks" in seed["periodization_summary"]

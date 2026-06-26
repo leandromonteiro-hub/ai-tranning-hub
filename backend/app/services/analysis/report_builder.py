@@ -377,6 +377,47 @@ def _section_resumo_executivo(
 # ---------------------------------------------------------------------------
 
 
+def _build_twin_seed_methodology(
+    races, tapers, comment_terms, power_curve_bests, blocks,
+) -> dict:
+    """Methodology signals for the twin_seed: races, taper strategy, coach
+    terminology and a compact periodization pattern. Pure; no DB."""
+    races_out = [
+        {"date": _fmt_date_iso(r.date), "name": r.name, "evidence": r.evidence}
+        for r in races
+    ]
+    tapers_out = [
+        {
+            "race_date": _fmt_date_iso(t.race_date),
+            "ctl_start": round(t.ctl_start, 1),
+            "ctl_race": round(t.ctl_race, 1),
+            "atl_race": round(t.atl_race, 1),
+            "tsb_race": round(t.tsb_race, 1),
+            "weekly_tss_trend": [round(v, 1) for v in t.weekly_tss_trend],
+            "evidence": t.evidence,
+        }
+        for t in tapers
+    ]
+    coach_terms = [[term, count] for term, count in comment_terms[:15]]
+
+    # Periodização: só o que já é derivável de `blocks` (datas/tipos). Sem novo cálculo.
+    durations = [(b.end - b.start).days + 1 for b in blocks]
+    recovery_blocks = sum(1 for b in blocks if (b.block_type or "").lower() == "recovery")
+    periodization_summary = {
+        "n_blocks": len(blocks),
+        "meso_length_days_typical": (
+            round(sum(durations) / len(durations)) if durations else None
+        ),
+        "recovery_blocks": recovery_blocks,
+    }
+    return {
+        "races": races_out,
+        "tapers": tapers_out,
+        "coach_terms": coach_terms,
+        "periodization_summary": periodization_summary,
+    }
+
+
 def _build_twin_seed(
     power_marks: BestPowerMarks,
     ftp_timeline: list[FtpEstimate],
@@ -384,6 +425,9 @@ def _build_twin_seed(
     blocks: list[Block],
     modality: ModalitySplit,
     volume_trend: WeeklyVolumeTrend,
+    races: list[Race],
+    tapers: list[TaperWindow],
+    comment_terms: list[tuple[str, int]],
 ) -> dict:
     """Build a compact JSON-serialisable dict for AthleteProfile.twin_seed."""
 
@@ -443,7 +487,7 @@ def _build_twin_seed(
         "hr_zone_workouts": intensity.measured.workouts_with_hr_zones,
     }
 
-    return {
+    seed = {
         "power_curve_bests": power_curve_bests,
         "ftp_timeline": ftp_list,
         "intensity_split": intensity_split,
@@ -451,6 +495,12 @@ def _build_twin_seed(
         "best_marks": best_marks,
         "data_richness": data_richness,
     }
+    seed.update(
+        _build_twin_seed_methodology(
+            races, tapers, comment_terms, power_curve_bests, blocks
+        )
+    )
+    return seed
 
 
 # ---------------------------------------------------------------------------
@@ -527,6 +577,9 @@ def build_profile_report(
         blocks=blocks,
         modality=modality,
         volume_trend=volume_trend,
+        races=races,
+        tapers=tapers,
+        comment_terms=comment_terms,
     )
 
     return report, twin_seed
