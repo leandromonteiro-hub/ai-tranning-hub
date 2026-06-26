@@ -76,6 +76,32 @@ def twin_seed_summary(profile: AthleteProfile | None) -> str:
     if dr.get("score") is not None:
         parts.append(f"Riqueza dos dados: {dr.get('label') or ''} ({float(dr['score']):.2f})")
 
+    tapers = seed.get("tapers") or []
+    if tapers:
+        t0 = tapers[0]
+        tsb = t0.get("tsb_race")
+        trend = t0.get("weekly_tss_trend") or []
+        drop = ""
+        if len(trend) >= 2 and trend[0]:
+            drop = f", volume ↓ ~{round((1 - trend[-1] / trend[0]) * 100)}%"
+        parts.append(
+            f"Taper típico (n={len(tapers)}): TSB ~{round(tsb) if tsb is not None else '—'} "
+            f"no dia da prova{drop}"
+        )
+
+    terms = seed.get("coach_terms") or []
+    if terms:
+        names = ", ".join(t[0] for t in terms[:8])
+        parts.append(f"Terminologia do treinador: {names}")
+
+    per = seed.get("periodization_summary") or {}
+    if per.get("n_blocks"):
+        meso = per.get("meso_length_days_typical")
+        rec = per.get("recovery_blocks")
+        meso_txt = f", mesos ~{meso}d" if meso else ""
+        rec_txt = f", {rec} blocos regen" if rec else ""
+        parts.append(f"Periodização real ({per['n_blocks']} blocos{meso_txt}{rec_txt})")
+
     return " · ".join(parts) if parts else "n/d"
 
 
