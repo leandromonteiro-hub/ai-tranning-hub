@@ -71,3 +71,25 @@ async def test_ingest_is_idempotent(maker):
     assert first["documents_created"] > 0
     assert second["documents_created"] == 0  # nada duplicado na 2ª passada
     assert stats["documents"] == first["documents_created"]
+
+
+async def test_ensure_knowledge_swallows_failures(maker, monkeypatch):
+    """Startup-safety guarantee: a failing ingest must never propagate.
+
+    ensure_knowledge imports ingest_curated_knowledge at function scope from
+    knowledge_service, so patching the source module's binding is what the
+    deferred import resolves. AsyncSessionLocal is redirected to the in-memory
+    sqlite maker so entering the `async with` doesn't touch the real DB.
+    """
+    import app.bootstrap as bootstrap
+    import app.services.knowledge.knowledge_service as ks
+
+    monkeypatch.setattr(bootstrap, "AsyncSessionLocal", maker)
+
+    async def _boom(session):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(ks, "ingest_curated_knowledge", _boom)
+
+    # must not raise — startup safety guarantee
+    assert await bootstrap.ensure_knowledge() is None
