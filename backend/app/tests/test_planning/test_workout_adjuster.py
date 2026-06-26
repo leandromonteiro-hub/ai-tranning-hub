@@ -28,6 +28,15 @@ def _max_pct(struct):
     return max(out)
 
 
+def _active_seconds_local(struct):
+    out = 0
+    for el in struct["elements"]:
+        for s in (el.get("steps") or [el]):
+            if s.get("intensity") == "active":
+                out += s.get("duration_s", 0)
+    return out
+
+
 def test_high_risk_becomes_recovery():
     r = wa.adjust(_HARD, RiskLevel.HIGH)
     assert r.changed is True
@@ -53,10 +62,12 @@ def test_low_risk_keeps_plan_unchanged():
     assert r.adjusted_structure == _HARD
 
 
-def test_adjust_is_idempotent_for_moderate():
+def test_moderate_intensity_ceiling_holds_on_reapplication():
     once = wa.adjust(_HARD, RiskLevel.MODERATE).adjusted_structure
     twice = wa.adjust(once, RiskLevel.MODERATE).adjusted_structure
     assert _max_pct(twice) <= 1.05  # capear de novo não estoura o teto
+    # scale_volume compõe: reaplicar MODERATE reduz a duração de novo (não-idempotente)
+    assert _active_seconds_local(twice) < _active_seconds_local(once)
 
 
 def test_none_structure_is_safe():

@@ -101,6 +101,8 @@ def adjust(structure: dict | None, risk_level: RiskLevel) -> AdjustResult:
         adjusted = scale_volume(cap_intensity(structure, _MODERATE_MAX_ZONE),
                                 _MODERATE_VOLUME_FACTOR)
     else:  # LOW → mantém
+        # LOW: returns the original structure BY REFERENCE — callers must not mutate
+        # result.adjusted_structure (do a deepcopy first if they need to).
         return AdjustResult(adjusted_structure=structure, changed=False,
                             change_summary={"risk": risk_level.value,
                                             "note": "estado alinhado; manter o planejado",
