@@ -25,7 +25,7 @@ from app.schemas.planning import (
     PlannedWorkoutRead,
     TrainingPlanRead,
 )
-from app.services.ai.recommender import generate_day_adjustment
+from app.services.ai.recommender import first_meaningful_line, generate_day_adjustment
 from app.services.planning.plan_expander import expand_plan_to_daily
 from app.services.planning.plan_service import generate_plan
 from app.services.workout.fit_encoder import encode as encode_fit
@@ -161,18 +161,6 @@ async def _load_planned_row(db, ctx, workout_planned_id) -> WorkoutPlanned:
     return row
 
 
-def _clean_reason(text: str | None) -> str | None:
-    """First meaningful line of the LLM rationale, with leading markdown heading
-    markers stripped — so the calendar's "Motivo:" banner reads as plain text."""
-    if not text:
-        return text
-    for line in text.splitlines():
-        stripped = line.strip().lstrip("#").strip()
-        if stripped:
-            return stripped
-    return None
-
-
 @router.post("/workouts/{workout_planned_id}/adjust",
              response_model=RecommendationRead, status_code=201)
 async def adjust_planned_workout(
@@ -214,7 +202,7 @@ async def apply_adjustment(
         "structure": p.get("adjusted_structure"),
         "tss": p.get("adjusted_tss"),
         "duration_s": p.get("adjusted_duration_s"),
-        "reason": _clean_reason(rec.rationale),
+        "reason": first_meaningful_line(rec.rationale),
         "recommendation_id": str(rec.id),
         "adjusted_at": datetime.now(timezone.utc).isoformat(),
     }

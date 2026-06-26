@@ -301,13 +301,26 @@ def _confidence(risk: RiskLevel, has_evidence: bool) -> tuple[float, str]:
     return base, "Low-risk state with historical evidence supporting the suggestion."
 
 
+def first_meaningful_line(text: str | None) -> str | None:
+    """First non-empty line of ``text`` with leading markdown heading markers
+    stripped — keeps raw LLM markdown ('# ...') out of plain-text summaries and
+    the calendar's "Motivo:" banner. Returns the input unchanged when falsy."""
+    if not text:
+        return text
+    for line in text.splitlines():
+        stripped = line.strip().lstrip("#").strip()
+        if stripped:
+            return stripped
+    return None
+
+
 def _summary(text: str, safety) -> str:
     prefix = ""
     if safety.risk_level == RiskLevel.HIGH:
         prefix = "[CONSERVATIVE ALTERNATIVE — high-risk state] "
     elif safety.risk_level == RiskLevel.MODERATE:
         prefix = "[PROCEED WITH CAUTION] "
-    first_line = text.strip().splitlines()[0] if text.strip() else "Recommendation generated."
+    first_line = first_meaningful_line(text) or "Recommendation generated."
     return (prefix + first_line)[:500]
 
 

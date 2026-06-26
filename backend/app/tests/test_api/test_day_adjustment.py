@@ -223,13 +223,14 @@ async def test_apply_adjustment_isolated_per_tenant(env):
     assert r2.status_code == 404, r2.text
 
 
-async def test_clean_reason_strips_markdown_heading():
-    """The "Motivo:" banner must read as plain text — no leading markdown '#'."""
-    from app.api.routes.plans import _clean_reason
+async def test_reason_banner_strips_markdown_heading():
+    """The "Motivo:" banner must read as plain text — no leading markdown '#'.
+    The route stores ``first_meaningful_line(rec.rationale)`` as the reason."""
+    from app.services.ai.recommender import first_meaningful_line
 
-    assert _clean_reason("# Recomendação — Manter 'Endurance Z2'\n\nDetalhe...") == \
+    assert first_meaningful_line("# Recomendação — Manter 'Endurance Z2'\n\nDetalhe...") == \
         "Recomendação — Manter 'Endurance Z2'"
-    assert _clean_reason("\n\n##  Título\nresto") == "Título"
-    assert _clean_reason("sem heading") == "sem heading"
-    assert _clean_reason("") == ""
-    assert _clean_reason(None) is None
+    assert first_meaningful_line("\n\n##  Título\nresto") == "Título"
+    assert first_meaningful_line("sem heading") == "sem heading"
+    assert first_meaningful_line("") == ""
+    assert first_meaningful_line(None) is None
