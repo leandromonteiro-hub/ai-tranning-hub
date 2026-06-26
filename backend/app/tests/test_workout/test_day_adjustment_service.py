@@ -47,3 +47,5 @@ async def test_generate_day_adjustment_persists_recommendation(session, two_athl
     assert "changed" in rec.payload
     assert "signals" in rec.payload
     assert rec.decision == RecommendationDecision.PENDING
+    assert "workout_planned_id" in rec.payload
+    assert rec.payload["workout_planned_id"] == str(w.id)

@@ -194,6 +194,9 @@ async def apply_adjustment(
     if rec.target_date != row.planned_date:
         raise HTTPException(status_code=409,
                             detail="Recomendação não corresponde a este treino.")
+    if (rec.payload or {}).get("workout_planned_id") not in (None, str(row.id)):
+        raise HTTPException(status_code=409,
+                            detail="Recomendação não corresponde a este treino.")
     p = rec.payload or {}
     row.adjustment = {
         "structure": p.get("adjusted_structure"),

@@ -180,6 +180,28 @@ async def test_apply_adjustment_rejects_mismatched_day(env):
     assert apply.status_code == 409, apply.text
 
 
+async def test_apply_adjustment_rejects_wrong_workout_same_date(env):
+    """A day_adjustment generated for workout #1 must not be applied to workout #2
+    even when both share the same planned_date (id-level guard, not just date). → 409"""
+    same_day = date.today() + timedelta(days=2)
+    wid1 = await _seed_planned(env.maker, env.ids["A"], same_day)
+    wid2 = await _seed_planned(env.maker, env.ids["A"], same_day)
+    h = {"Authorization": f"Bearer {await _token(env.client, 'a@example.com')}"}
+
+    # Generate an adjustment for workout #1
+    adj = await env.client.post(f"/api/v1/plans/workouts/{wid1}/adjust", headers=h)
+    assert adj.status_code == 201, adj.text
+    rec_id = adj.json()["id"]
+
+    # Try to apply workout #1's recommendation onto workout #2 (same day, different id) → 409
+    apply = await env.client.post(
+        f"/api/v1/plans/workouts/{wid2}/apply-adjustment",
+        headers=h,
+        json={"recommendation_id": rec_id},
+    )
+    assert apply.status_code == 409, apply.text
+
+
 async def test_apply_adjustment_isolated_per_tenant(env):
     """Athlete B cannot adjust or apply on a workout that belongs to athlete A (404)."""
     wid = await _seed_planned(

@@ -243,6 +243,7 @@ async def generate_day_adjustment(
         adjust_if_tired="Se mais cansado que o snapshot indica, caia para Z1-Z2 ou descanse.",
         adjust_if_less_time="Com menos tempo, mantenha o bloco principal e corte aquecimento/volume.",
         payload={
+            "workout_planned_id": str(workout_planned.id),
             "planned_snapshot": {
                 "name": workout_planned.name,
                 "structure": workout_planned.structure,
