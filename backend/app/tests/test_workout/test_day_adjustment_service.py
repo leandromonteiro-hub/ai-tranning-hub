@@ -3,6 +3,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from app.models.enums import RecommendationDecision
 from app.models.workout import WorkoutPlanned
 from app.services.ai.recommender import generate_day_adjustment
 from app.tests.conftest import ctx_for
@@ -42,3 +43,7 @@ async def test_generate_day_adjustment_persists_recommendation(session, two_athl
     assert rec.target_date == w.planned_date
     assert "adjusted_structure" in rec.payload
     assert "change_summary" in rec.payload
+    assert "planned_snapshot" in rec.payload
+    assert "changed" in rec.payload
+    assert "signals" in rec.payload
+    assert rec.decision == RecommendationDecision.PENDING
