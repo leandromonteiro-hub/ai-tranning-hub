@@ -7,8 +7,6 @@ from app.models.ai import AiRecommendation, AiRecommendationFeedback
 from app.models.enums import RecommendationDecision, RiskLevel
 from app.services.ai.feedback_context import FeedbackItem, summarize, feedback_summary
 
-pytestmark = pytest.mark.asyncio
-
 
 def _ctx(aid):
     from app.models.enums import Role
@@ -73,6 +71,7 @@ def test_summarize_block_none_groups_under_dash():
     assert "Por bloco:" not in text          # "—" não vira recorte textual
 
 
+@pytest.mark.asyncio
 async def test_feedback_summary_reads_and_aggregates(session):
     aid = uuid.uuid4()
     await _seed_feedback(session, aid, rating=5, made_sense=True, comment="bom", block="BASE")
@@ -83,11 +82,13 @@ async def test_feedback_summary_reads_and_aggregates(session):
     assert "bom" in text or "puxado" in text
 
 
+@pytest.mark.asyncio
 async def test_feedback_summary_empty_is_nd(session):
     aid = uuid.uuid4()
     assert await feedback_summary(session, _ctx(aid), aid) == ("n/d", {})
 
 
+@pytest.mark.asyncio
 async def test_feedback_summary_isolated_per_athlete(session):
     a, b = uuid.uuid4(), uuid.uuid4()
     await _seed_feedback(session, a, rating=5, made_sense=True, comment="de A", block="BASE")
