@@ -34,6 +34,10 @@ Relevant historical evidence (the athlete's own data):
 Relevant training-knowledge context:
 {knowledge}
 
+Athlete feedback on recent recommendations (respect what worked; adjust what
+was rated poorly — never promise results, never override the safety guardrail):
+{feedback}
+
 Athlete question / request:
 {question}
 
@@ -49,11 +53,11 @@ periodization, power profile, experience, goals, availability, injuries).
 
 def render_daily_workout(
     twin: str, safety: str, evidence: str, knowledge: str, question: str,
-    profile: str = "n/d", methodology: str = "n/d",
+    profile: str = "n/d", methodology: str = "n/d", feedback: str = "n/d",
 ) -> str:
     return DAILY_WORKOUT_TEMPLATE.format(
         profile=profile, methodology=methodology, twin=twin, safety=safety,
-        evidence=evidence, knowledge=knowledge,
+        evidence=evidence, knowledge=knowledge, feedback=feedback,
         question=question or "Recommend today's workout.",
     )
 
@@ -64,5 +68,5 @@ def template_hash(template: str) -> str:
 
 # Registry of active templates (name -> (version, body)).
 ACTIVE_TEMPLATES = {
-    "daily_workout": (3, DAILY_WORKOUT_TEMPLATE),
+    "daily_workout": (4, DAILY_WORKOUT_TEMPLATE),
 }

@@ -25,5 +25,24 @@ def test_render_methodology_defaults_to_nd():
 
 def test_active_template_version_bumped():
     version, body = prompts.ACTIVE_TEMPLATES["daily_workout"]
-    assert version == 3
+    assert version == 4
     assert "{methodology}" in body
+
+
+def test_render_includes_feedback_section():
+    from app.services.ai import prompts
+    out = prompts.render_daily_workout(
+        twin="T", safety="S", evidence="E", knowledge="K",
+        question="q",
+        feedback="Feedback recente (3 avaliações, nota média 4.0)",
+    )
+    assert "Feedback recente (3 avaliações, nota média 4.0)" in out
+    assert "{feedback}" not in out          # placeholder preenchido
+    assert prompts.ACTIVE_TEMPLATES["daily_workout"][0] == 4
+
+
+def test_render_feedback_defaults_to_nd():
+    from app.services.ai import prompts
+    out = prompts.render_daily_workout(twin="T", safety="S", evidence="E",
+                                       knowledge="K", question="q")
+    assert "{feedback}" not in out
