@@ -32,7 +32,7 @@ from app.services.ai.llm_client import LlmClient
 from app.services.ai.safety_validator import evaluate_safety
 from app.services.knowledge.embedder import embed_text
 from app.services.workout import analysis as workout_analysis
-from app.services.workout.builder import build_for
+from app.services.workout.builder import build_for, workout_type_for
 from app.services.workout.model import StructuredWorkout
 from app.services.planning import workout_adjuster
 
@@ -135,6 +135,7 @@ async def generate_recommendation(
     confidence, conf_rationale = _confidence(safety.risk_level, bool(evidence_items))
     signals = _signals(twin.snapshot, methodology, block, ftp_watts)
     signals["feedback"] = feedback_stats
+    signals["workout_type"] = workout_type_for(block, safety.risk_level).value
     rec = AiRecommendation(
         athlete_id=athlete_id,
         target_date=target_date,
@@ -244,8 +245,11 @@ async def generate_day_adjustment(
 
     template_id = await prompt_store.active_template_id(session, "daily_workout")
     confidence, conf_rationale = _confidence(safety.risk_level, bool(evidence_items))
+    planned_type = getattr(workout_planned.workout_type, "value",
+                           workout_planned.workout_type)
     signals = _signals(twin.snapshot, methodology, block, ftp_watts)
     signals["feedback"] = feedback_stats
+    signals["workout_type"] = planned_type
     rec = AiRecommendation(
         athlete_id=athlete_id, target_date=target_date, kind="day_adjustment",
         question=question, summary=_summary(llm.text, safety),
@@ -261,8 +265,7 @@ async def generate_day_adjustment(
                 "structure": workout_planned.structure,
                 "planned_tss": workout_planned.planned_tss,
                 "planned_duration_s": workout_planned.planned_duration_s,
-                "workout_type": getattr(workout_planned.workout_type, "value",
-                                        workout_planned.workout_type),
+                "workout_type": planned_type,
             },
             "adjusted_structure": adjusted_struct,
             "adjusted_tss": adjusted_tss,

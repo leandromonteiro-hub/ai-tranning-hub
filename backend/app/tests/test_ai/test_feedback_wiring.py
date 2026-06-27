@@ -3,7 +3,7 @@ import pytest
 from datetime import date, timedelta
 
 from app.models.ai import AiRecommendation, AiRecommendationFeedback
-from app.models.enums import RecommendationDecision, RiskLevel
+from app.models.enums import RecommendationDecision, RiskLevel, WorkoutType
 from app.models.metrics import FtpHistory
 from app.models.workout import WorkoutPlanned
 from app.services.ai.recommender import generate_day_adjustment, generate_recommendation
@@ -61,3 +61,34 @@ async def test_day_adjustment_payload_carries_feedback_stats(session, two_athlet
     fb = (rec.payload or {}).get("signals", {}).get("feedback")
     assert fb is not None
     assert fb["count"] >= 1
+
+
+async def test_daily_recommendation_signals_carry_workout_type(session, two_athletes):
+    a, _ = two_athletes
+    ctx = ctx_for(a)
+    session.add(FtpHistory(athlete_id=a.id, created_by=a.id, ftp_watts=240.0,
+                           valid_from=date(2026, 1, 1)))
+    await session.flush()
+    rec = await generate_recommendation(session, ctx, a.id,
+                                        target_date=date(2026, 6, 23), kind="daily_workout")
+    wt = (rec.payload or {}).get("signals", {}).get("workout_type")
+    assert wt is not None
+    assert isinstance(wt, str)  # valor string do enum, nunca o objeto
+
+
+async def test_day_adjustment_signals_carry_planned_workout_type(session, two_athletes):
+    a, _ = two_athletes
+    ctx = ctx_for(a)
+    w = WorkoutPlanned(
+        athlete_id=a.id, created_by=a.id,
+        planned_date=date.today() + timedelta(days=1), name="Endurance",
+        workout_type=WorkoutType.ENDURANCE,
+        structure={"name": "Endurance", "sport": "cycling", "elements": [
+            {"intensity": "active", "duration_s": 1200,
+             "target": {"type": "power_pct_ftp", "low": 0.65, "high": 0.68}}]},
+    )
+    session.add(w)
+    await session.flush()
+    rec = await generate_day_adjustment(session, ctx, a.id, workout_planned=w)
+    wt = (rec.payload or {}).get("signals", {}).get("workout_type")
+    assert wt == "ENDURANCE"  # tipo REAL do planejado, não derivado
