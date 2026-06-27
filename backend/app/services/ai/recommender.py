@@ -26,7 +26,7 @@ from app.models.enums import BlockType, RecommendationDecision, RiskLevel
 from app.repositories.ai_repo import RecommendationRepository
 from app.repositories.metrics_repo import FtpRepository
 from app.repositories.plan_repo import TrainingWeekRepository
-from app.services.ai import evidence_builder, profile_context, prompt_store, prompts, rag
+from app.services.ai import evidence_builder, feedback_context, profile_context, prompt_store, prompts, rag
 from app.services.ai.digital_twin import build_twin
 from app.services.ai.llm_client import LlmClient
 from app.services.ai.safety_validator import evaluate_safety
@@ -101,6 +101,9 @@ async def generate_recommendation(
 
     # 4. Render versioned template + logged LLM call
     methodology = profile_context.twin_seed_summary(profile)
+    feedback_text, feedback_stats = await feedback_context.feedback_summary(
+        session, ctx, athlete_id
+    )
     template_version, template_body = prompts.ACTIVE_TEMPLATES[kind] if kind in prompts.ACTIVE_TEMPLATES else (1, prompts.DAILY_WORKOUT_TEMPLATE)
     prompt = prompts.render_daily_workout(
         twin=twin.summary,
@@ -109,6 +112,7 @@ async def generate_recommendation(
         knowledge=knowledge_text,
         profile=profile_context.profile_summary(profile),
         methodology=methodology,
+        feedback=feedback_text,
         question=query if not safety.block_original else (
             query + "\n\nNOTE: guardrails flagged HIGH risk — you MUST recommend a "
             "conservative recovery-oriented alternative only."
@@ -129,6 +133,8 @@ async def generate_recommendation(
     # 5. Persist recommendation with full provenance
     template_id = await prompt_store.active_template_id(session, kind if kind in prompts.ACTIVE_TEMPLATES else "daily_workout")
     confidence, conf_rationale = _confidence(safety.risk_level, bool(evidence_items))
+    signals = _signals(twin.snapshot, methodology, block, ftp_watts)
+    signals["feedback"] = feedback_stats
     rec = AiRecommendation(
         athlete_id=athlete_id,
         target_date=target_date,
@@ -147,7 +153,7 @@ async def generate_recommendation(
             "template_version": template_version,
             "structured_workout": structured_workout,
             "workout_description": workout_description,
-            "signals": _signals(twin.snapshot, methodology, block, ftp_watts),
+            "signals": signals,
         },
         risk_level=safety.risk_level,
         risk_flags=safety.as_dict(),
@@ -203,6 +209,9 @@ async def generate_day_adjustment(
         session, ctx, athlete_id, as_of=target_date
     )
     evidence_text = "\n".join(f"- {e.description}" for e in evidence_items) or "n/d"
+    feedback_text, feedback_stats = await feedback_context.feedback_summary(
+        session, ctx, athlete_id
+    )
 
     question = (
         f"O treino planejado para {target_date} é '{workout_planned.name}'. "
@@ -219,6 +228,7 @@ async def generate_day_adjustment(
         knowledge="n/d",
         profile=profile_context.profile_summary(profile),
         methodology=methodology,
+        feedback=feedback_text,
         question=question,
     )
     client = LlmClient()
@@ -234,6 +244,8 @@ async def generate_day_adjustment(
 
     template_id = await prompt_store.active_template_id(session, "daily_workout")
     confidence, conf_rationale = _confidence(safety.risk_level, bool(evidence_items))
+    signals = _signals(twin.snapshot, methodology, block, ftp_watts)
+    signals["feedback"] = feedback_stats
     rec = AiRecommendation(
         athlete_id=athlete_id, target_date=target_date, kind="day_adjustment",
         question=question, summary=_summary(llm.text, safety),
@@ -257,7 +269,7 @@ async def generate_day_adjustment(
             "adjusted_duration_s": adjusted_duration_s,
             "change_summary": result.change_summary,
             "changed": result.changed,
-            "signals": _signals(twin.snapshot, methodology, block, ftp_watts),
+            "signals": signals,
             "llm_text": llm.text,
         },
         risk_level=safety.risk_level, risk_flags=safety.as_dict(),
