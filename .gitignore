@@ -32,3 +32,6 @@ sample_fit/
 
 # Athlete profile analyses (sensitive — like raw data)
 docs/atletas/*-perfil.md
+
+# Local-only docker compose port remap (per-developer host ports)
+docker-compose.override.yml
