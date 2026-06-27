@@ -41,7 +41,7 @@ def test_summarize_aggregates_overall_and_by_workout_type():
     text, stats = summarize(_items())
     assert stats["count"] == 3
     assert stats["avg_rating"] == 4.0
-    assert stats["made_sense_pct"] == 67  # 2 responderam made_sense, 2 True -> 67%
+    assert stats["made_sense_pct"] == 67  # 3 responderam made_sense, 2 True -> 67%
     assert stats["by_workout_type"]["VO2MAX"]["count"] == 2
     assert stats["by_workout_type"]["VO2MAX"]["avg_rating"] == 3.5
     assert "Feedback recente (3 avaliações, nota média 4.0" in text

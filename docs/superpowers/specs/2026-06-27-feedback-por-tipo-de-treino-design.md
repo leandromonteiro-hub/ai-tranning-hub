@@ -113,6 +113,7 @@ feedback do atleta ──▶ AiRecommendationFeedback ──join──▶ feedba
 - Rec sem `workout_type` nos signals (antiga): balde `"—"`, fora da linha "Por tipo:".
 - `workout_type_for` com bloco desconhecido: cai em `ENDURANCE` (default seguro,
   mesma postura de `TEMPLATES.get(..., endurance)`).
+- Nota: o fluxo diário só emite 5 dos 10 WorkoutType (ENDURANCE, SWEET_SPOT, VO2MAX, OTHER, RECOVERY, derivados do bloco+risco), enquanto o ajuste-do-dia emite o tipo real do planejado (enum completo). Buckets diários esparsos são esperados — não é erro de wiring.
 
 ## Testes
 

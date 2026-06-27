@@ -1,7 +1,7 @@
 import pytest
 
-from app.models.enums import BlockType, RiskLevel
-from app.services.workout.builder import build_for
+from app.models.enums import BlockType, RiskLevel, WorkoutType
+from app.services.workout.builder import build_for, workout_type_for
 from app.services.workout.model import Repeat
 
 
@@ -40,10 +40,6 @@ def test_moderate_reduces_volume_without_raising_intensity():
     assert mod_reps < low_reps
     # intensity (peak active target) never exceeds the LOW version
     assert max(_all_active_targets(mod)) <= max(_all_active_targets(low))
-
-
-from app.models.enums import WorkoutType
-from app.services.workout.builder import workout_type_for
 
 
 def test_workout_type_for_maps_each_block():
