@@ -3,7 +3,8 @@
 Mirrors profile_context.twin_seed_summary: aggregates recent feedback (rating,
 made_sense, comments) into a compact PT-BR string injected as the prompt's
 {feedback} section, plus a stats dict surfaced in the "Baseado em" panel. Pure
-aggregation (summarize) is separated from the DB read (feedback_summary)."""
+aggregation (summarize) is separated from the DB read (feedback_summary).
+Feedback is grouped por tipo de treino (workout_type)."""
 from __future__ import annotations
 
 import uuid
@@ -25,7 +26,7 @@ class FeedbackItem:
     rating: int
     made_sense: bool | None
     comment: str | None
-    block: str | None
+    workout_type: str | None
     when: date
 
 
@@ -38,26 +39,26 @@ def _rate(group: list["FeedbackItem"]) -> dict:
 
 
 def summarize(items: list[FeedbackItem], comment_limit: int = _DEFAULT_COMMENT_LIMIT) -> tuple[str, dict]:
-    """Aggregate feedback (most-recent-first) into (pt-BR text, stats). ('n/d', {}) when empty."""
+    """Aggregate feedback (most-recent-first) into (pt-BR text, stats) por tipo de treino. ('n/d', {}) when empty."""
     if not items:
         return "n/d", {}
 
     overall = _rate(items)
-    by_block: dict[str, dict] = {}
+    by_workout_type: dict[str, dict] = {}
     grouped: dict[str, list[FeedbackItem]] = {}
     for i in items:
-        grouped.setdefault(i.block or "—", []).append(i)
-    for block, group in grouped.items():
-        by_block[block] = _rate(group)
+        grouped.setdefault(i.workout_type or "—", []).append(i)
+    for wtype, group in grouped.items():
+        by_workout_type[wtype] = _rate(group)
 
     comments: list[str] = []
     for i in items:
         if i.comment and i.comment.strip():
-            comments.append(f"[{i.when.isoformat()} · {i.block or '—'}] {i.comment.strip()}")
+            comments.append(f"[{i.when.isoformat()} · {i.workout_type or '—'}] {i.comment.strip()}")
         if len(comments) >= comment_limit:
             break
 
-    stats = {**overall, "by_block": by_block}
+    stats = {**overall, "by_workout_type": by_workout_type}
 
     head = f"Feedback recente ({overall['count']} avaliações, nota média {overall['avg_rating']}"
     if overall["made_sense_pct"] is not None:
@@ -65,16 +66,16 @@ def summarize(items: list[FeedbackItem], comment_limit: int = _DEFAULT_COMMENT_L
     head += ")"
     parts = [head]
 
-    block_bits = []
-    for block, s in by_block.items():
-        if block == "—":
+    type_bits = []
+    for wtype, s in by_workout_type.items():
+        if wtype == "—":
             continue
-        bit = f"{block} {s['avg_rating']}/5"
+        bit = f"{wtype} {s['avg_rating']}/5"
         if s["made_sense_pct"] is not None:
             bit += f" ({s['made_sense_pct']}% fez sentido)"
-        block_bits.append(bit)
-    if block_bits:
-        parts.append("Por bloco: " + ", ".join(block_bits))
+        type_bits.append(bit)
+    if type_bits:
+        parts.append("Por tipo: " + ", ".join(type_bits))
     if comments:
         parts.append("Comentários: " + "; ".join(comments))
 
@@ -106,10 +107,10 @@ async def feedback_summary(
     rows = (await session.execute(stmt)).all()
     items: list[FeedbackItem] = []
     for fb, rec in rows:
-        block = ((rec.payload or {}).get("signals") or {}).get("block")
+        workout_type = ((rec.payload or {}).get("signals") or {}).get("workout_type")
         when = (fb.created_at or datetime.now(timezone.utc)).date()
         items.append(FeedbackItem(
             rating=fb.rating, made_sense=fb.made_sense,
-            comment=fb.comment, block=block, when=when,
+            comment=fb.comment, workout_type=workout_type, when=when,
         ))
     return summarize(items, comment_limit)

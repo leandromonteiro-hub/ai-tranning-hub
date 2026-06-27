@@ -13,11 +13,11 @@ def _ctx(aid):
     return TenantContext(athlete_id=aid, tenant_id="t", role=Role.ATHLETE)
 
 
-async def _seed_feedback(session, aid, *, rating, made_sense, comment, block):
+async def _seed_feedback(session, aid, *, rating, made_sense, comment, workout_type):
     rec = AiRecommendation(
         athlete_id=aid, target_date=date(2026, 6, 20), kind="daily_workout",
         summary="s", risk_level=RiskLevel.LOW, decision=RecommendationDecision.PENDING,
-        payload={"signals": {"block": block}},
+        payload={"signals": {"workout_type": workout_type}},
     )
     session.add(rec)
     await session.flush()
@@ -31,27 +31,27 @@ async def _seed_feedback(session, aid, *, rating, made_sense, comment, block):
 def _items():
     # mais recente primeiro
     return [
-        FeedbackItem(5, True, "perfeito", "BASE", date(2026, 6, 20)),
-        FeedbackItem(3, False, "muito puxado no fim", "BUILD", date(2026, 6, 12)),
-        FeedbackItem(4, True, None, "BUILD", date(2026, 6, 5)),
+        FeedbackItem(5, True, "perfeito", "ENDURANCE", date(2026, 6, 20)),
+        FeedbackItem(3, False, "muito puxado no fim", "VO2MAX", date(2026, 6, 12)),
+        FeedbackItem(4, True, None, "VO2MAX", date(2026, 6, 5)),
     ]
 
 
-def test_summarize_aggregates_overall_and_by_block():
+def test_summarize_aggregates_overall_and_by_workout_type():
     text, stats = summarize(_items())
     assert stats["count"] == 3
     assert stats["avg_rating"] == 4.0
-    assert stats["made_sense_pct"] == 67  # 2 de 3 made_sense responderam, 2 True -> 67%
-    assert stats["by_block"]["BUILD"]["count"] == 2
-    assert stats["by_block"]["BUILD"]["avg_rating"] == 3.5
+    assert stats["made_sense_pct"] == 67  # 2 responderam made_sense, 2 True -> 67%
+    assert stats["by_workout_type"]["VO2MAX"]["count"] == 2
+    assert stats["by_workout_type"]["VO2MAX"]["avg_rating"] == 3.5
     assert "Feedback recente (3 avaliações, nota média 4.0" in text
-    assert "Por bloco:" in text
+    assert "Por tipo:" in text
 
 
 def test_summarize_includes_recent_comments_with_label():
     text, _ = summarize(_items(), comment_limit=5)
-    assert "[2026-06-20 · BASE] perfeito" in text
-    assert "[2026-06-12 · BUILD] muito puxado no fim" in text
+    assert "[2026-06-20 · ENDURANCE] perfeito" in text
+    assert "[2026-06-12 · VO2MAX] muito puxado no fim" in text
 
 
 def test_summarize_respects_comment_limit_most_recent_first():
@@ -64,20 +64,21 @@ def test_summarize_empty_is_nd():
     assert summarize([]) == ("n/d", {})
 
 
-def test_summarize_block_none_groups_under_dash():
+def test_summarize_type_none_groups_under_dash():
     text, stats = summarize([FeedbackItem(4, None, None, None, date(2026, 6, 1))])
-    assert stats["by_block"]["—"]["count"] == 1
+    assert stats["by_workout_type"]["—"]["count"] == 1
     assert stats["made_sense_pct"] is None   # ninguém respondeu made_sense
-    assert "Por bloco:" not in text          # "—" não vira recorte textual
+    assert "Por tipo:" not in text           # "—" não vira recorte textual
 
 
 @pytest.mark.asyncio
 async def test_feedback_summary_reads_and_aggregates(session):
     aid = uuid.uuid4()
-    await _seed_feedback(session, aid, rating=5, made_sense=True, comment="bom", block="BASE")
-    await _seed_feedback(session, aid, rating=3, made_sense=False, comment="puxado", block="BUILD")
+    await _seed_feedback(session, aid, rating=5, made_sense=True, comment="bom", workout_type="ENDURANCE")
+    await _seed_feedback(session, aid, rating=3, made_sense=False, comment="puxado", workout_type="VO2MAX")
     text, stats = await feedback_summary(session, _ctx(aid), aid)
     assert stats["count"] == 2
+    assert stats["by_workout_type"]["VO2MAX"]["count"] == 1
     assert "Feedback recente (2 avaliações" in text
     assert "bom" in text or "puxado" in text
 
@@ -91,6 +92,6 @@ async def test_feedback_summary_empty_is_nd(session):
 @pytest.mark.asyncio
 async def test_feedback_summary_isolated_per_athlete(session):
     a, b = uuid.uuid4(), uuid.uuid4()
-    await _seed_feedback(session, a, rating=5, made_sense=True, comment="de A", block="BASE")
+    await _seed_feedback(session, a, rating=5, made_sense=True, comment="de A", workout_type="ENDURANCE")
     text_b, stats_b = await feedback_summary(session, _ctx(b), b)
     assert (text_b, stats_b) == ("n/d", {})  # B não vê o feedback de A
