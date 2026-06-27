@@ -1,5 +1,6 @@
 from intelligence_view import (
     dashboard_html,
+    feedback_line,
     form_reading,
     ftp_bars,
     intensity_bar,
@@ -84,3 +85,24 @@ def test_dashboard_renders_all_sections():
 def test_dashboard_empty_when_no_intelligence():
     html = dashboard_html(None, None, None)
     assert "ainda não gerado" in html
+
+
+def test_feedback_line_renders_when_count_positive():
+    from intelligence_view import feedback_line
+    out = feedback_line({"count": 4, "avg_rating": 4.2, "made_sense_pct": 88})
+    assert "4" in out and "4.2" in out and "88%" in out
+    assert "avalia" in out.lower()
+
+
+def test_feedback_line_empty_when_no_feedback():
+    from intelligence_view import feedback_line
+    assert feedback_line(None) == ""
+    assert feedback_line({}) == ""
+    assert feedback_line({"count": 0}) == ""
+
+
+def test_feedback_line_without_made_sense():
+    from intelligence_view import feedback_line
+    out = feedback_line({"count": 2, "avg_rating": 3.5, "made_sense_pct": None})
+    assert "3.5" in out
+    assert "%" not in out  # sem o trecho de "fez sentido"

@@ -175,6 +175,9 @@ def recommendations_tab(token: str, anamnese_ok: bool = True) -> None:
                 meth = sig.get("methodology")
                 if meth and meth != "n/d":
                     st.markdown(f"**Metodologia (perfil reverso real):** {meth}")
+                fb_line = iv.feedback_line(sig.get("feedback"))
+                if fb_line:
+                    st.caption(fb_line)
 
         with st.expander("Justificativa, evidências e ajustes"):
             st.write("**Objetivo fisiológico:**", rec.get("physiological_objective"))
@@ -517,6 +520,9 @@ def _render_day_detail(token: str, w: dict, acts: list[dict], iso: str) -> None:
                 else:
                     st.success("Seu estado está alinhado ao planejado — mantenha o treino.")
                 st.write(preview.get("rationale"))
+                fb_line = iv.feedback_line(((pl.get("signals")) or {}).get("feedback"))
+                if fb_line:
+                    st.caption(fb_line)
                 c1, c2 = st.columns(2)
                 if pl.get("changed") and c1.button("✅ Aceitar ajuste", key=f"acc_{w['id']}"):
                     a = api("POST", f"/plans/workouts/{w['id']}/apply-adjustment",

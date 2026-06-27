@@ -49,6 +49,22 @@ _BLOCK_COLORS = {
 }
 
 
+def feedback_line(stats: dict | None) -> str:
+    """One-line transparency note that recent feedback informed the suggestion.
+    Empty string when there is no feedback."""
+    if not stats or not stats.get("count"):
+        return ""
+    n = stats["count"]
+    avg = stats.get("avg_rating")
+    parts = f"📝 Considerou suas últimas {n} avaliações"
+    if avg is not None:
+        parts += f" — nota média {avg}"
+    pct = stats.get("made_sense_pct")
+    if pct is not None:
+        parts += f" · fez sentido {pct}%"
+    return parts
+
+
 def form_reading(ctl: float, atl: float, tsb: float) -> str:
     """One-line interpretation of the current form (TSB-driven)."""
     if tsb >= 15:
