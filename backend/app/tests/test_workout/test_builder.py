@@ -40,3 +40,25 @@ def test_moderate_reduces_volume_without_raising_intensity():
     assert mod_reps < low_reps
     # intensity (peak active target) never exceeds the LOW version
     assert max(_all_active_targets(mod)) <= max(_all_active_targets(low))
+
+
+from app.models.enums import WorkoutType
+from app.services.workout.builder import workout_type_for
+
+
+def test_workout_type_for_maps_each_block():
+    assert workout_type_for(BlockType.BASE, RiskLevel.LOW) == WorkoutType.ENDURANCE
+    assert workout_type_for(BlockType.BUILD, RiskLevel.LOW) == WorkoutType.SWEET_SPOT
+    assert workout_type_for(BlockType.PEAK, RiskLevel.LOW) == WorkoutType.VO2MAX
+    assert workout_type_for(BlockType.TAPER, RiskLevel.LOW) == WorkoutType.OTHER
+    assert workout_type_for(BlockType.RECOVERY, RiskLevel.LOW) == WorkoutType.RECOVERY
+
+
+def test_workout_type_for_high_risk_forces_recovery_over_block():
+    for block in BlockType:
+        assert workout_type_for(block, RiskLevel.HIGH) == WorkoutType.RECOVERY
+
+
+def test_workout_type_for_moderate_keeps_block_type():
+    # MODERATE reduz volume mas não muda o tipo de estímulo
+    assert workout_type_for(BlockType.BUILD, RiskLevel.MODERATE) == WorkoutType.SWEET_SPOT

@@ -6,8 +6,9 @@ MODERATE -> the block template with reduced volume (never higher intensity).
 """
 from __future__ import annotations
 
-from app.models.enums import BlockType, RiskLevel
+from app.models.enums import BlockType, RiskLevel, WorkoutType
 from app.services.workout import analysis, templates
+from app.services.workout.templates import BLOCK_WORKOUT_TYPE
 from app.services.workout.model import Repeat, StructuredWorkout
 
 
@@ -40,3 +41,15 @@ def build_for(
     workout.ftp_watts = ftp_watts
     workout.estimated_tss = analysis.estimated_tss(workout)
     return workout
+
+
+def workout_type_for(block_type: BlockType, risk_level: RiskLevel) -> WorkoutType:
+    """Tipo de estímulo do treino diário, derivado de bloco+risco.
+
+    Espelha a seleção de template de build_for: risco HIGH força RECOVERY
+    (mesmo override que troca o template para `recovery`); caso contrário o
+    tipo segue o bloco. Bloco desconhecido cai em ENDURANCE (default seguro,
+    igual ao TEMPLATES.get(..., endurance))."""
+    if risk_level == RiskLevel.HIGH:
+        return WorkoutType.RECOVERY
+    return BLOCK_WORKOUT_TYPE.get(block_type, WorkoutType.ENDURANCE)

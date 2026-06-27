@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from app.models.enums import BlockType
+from app.models.enums import BlockType, WorkoutType
 from app.services.workout.model import Repeat, Step, StructuredWorkout, Target
 
 
@@ -88,4 +88,14 @@ TEMPLATES: dict[BlockType, Callable[[float], StructuredWorkout]] = {
     BlockType.PEAK: vo2max,
     BlockType.TAPER: openers,
     BlockType.RECOVERY: recovery,
+}
+
+# Tipo de estímulo de cada bloco (paralelo a TEMPLATES). Usado para agregar
+# feedback por tipo de treino. TAPER usa 'openers' (ativação) -> OTHER.
+BLOCK_WORKOUT_TYPE: dict[BlockType, WorkoutType] = {
+    BlockType.BASE: WorkoutType.ENDURANCE,
+    BlockType.BUILD: WorkoutType.SWEET_SPOT,
+    BlockType.PEAK: WorkoutType.VO2MAX,
+    BlockType.TAPER: WorkoutType.OTHER,
+    BlockType.RECOVERY: WorkoutType.RECOVERY,
 }
