@@ -79,3 +79,37 @@ def summarize(items: list[FeedbackItem], comment_limit: int = _DEFAULT_COMMENT_L
         parts.append("Comentários: " + "; ".join(comments))
 
     return " · ".join(parts), stats
+
+
+async def feedback_summary(
+    session: AsyncSession,
+    ctx: TenantContext,
+    athlete_id: uuid.UUID,
+    *,
+    window_days: int = _DEFAULT_WINDOW_DAYS,
+    comment_limit: int = _DEFAULT_COMMENT_LIMIT,
+) -> tuple[str, dict]:
+    """Read recent feedback for one athlete (tenant-scoped) and summarise it."""
+    ctx.assert_can_access(athlete_id)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
+    stmt = (
+        select(AiRecommendationFeedback, AiRecommendation)
+        .join(AiRecommendation,
+              AiRecommendationFeedback.recommendation_id == AiRecommendation.id)
+        .where(
+            AiRecommendationFeedback.athlete_id == athlete_id,
+            AiRecommendationFeedback.deleted_at.is_(None),
+            AiRecommendationFeedback.created_at >= cutoff,
+        )
+        .order_by(AiRecommendationFeedback.created_at.desc())
+    )
+    rows = (await session.execute(stmt)).all()
+    items: list[FeedbackItem] = []
+    for fb, rec in rows:
+        block = ((rec.payload or {}).get("signals") or {}).get("block")
+        when = (fb.created_at or datetime.now(timezone.utc)).date()
+        items.append(FeedbackItem(
+            rating=fb.rating, made_sense=fb.made_sense,
+            comment=fb.comment, block=block, when=when,
+        ))
+    return summarize(items, comment_limit)

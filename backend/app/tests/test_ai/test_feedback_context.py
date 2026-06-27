@@ -1,5 +1,33 @@
+import uuid
+import pytest
 from datetime import date
-from app.services.ai.feedback_context import FeedbackItem, summarize
+
+from app.core.tenant import TenantContext
+from app.models.ai import AiRecommendation, AiRecommendationFeedback
+from app.models.enums import RecommendationDecision, RiskLevel
+from app.services.ai.feedback_context import FeedbackItem, summarize, feedback_summary
+
+pytestmark = pytest.mark.asyncio
+
+
+def _ctx(aid):
+    from app.models.enums import Role
+    return TenantContext(athlete_id=aid, tenant_id="t", role=Role.ATHLETE)
+
+
+async def _seed_feedback(session, aid, *, rating, made_sense, comment, block):
+    rec = AiRecommendation(
+        athlete_id=aid, target_date=date(2026, 6, 20), kind="daily_workout",
+        summary="s", risk_level=RiskLevel.LOW, decision=RecommendationDecision.PENDING,
+        payload={"signals": {"block": block}},
+    )
+    session.add(rec)
+    await session.flush()
+    session.add(AiRecommendationFeedback(
+        athlete_id=aid, recommendation_id=rec.id, rating=rating,
+        made_sense=made_sense, comment=comment,
+    ))
+    await session.flush()
 
 
 def _items():
@@ -43,3 +71,25 @@ def test_summarize_block_none_groups_under_dash():
     assert stats["by_block"]["—"]["count"] == 1
     assert stats["made_sense_pct"] is None   # ninguém respondeu made_sense
     assert "Por bloco:" not in text          # "—" não vira recorte textual
+
+
+async def test_feedback_summary_reads_and_aggregates(session):
+    aid = uuid.uuid4()
+    await _seed_feedback(session, aid, rating=5, made_sense=True, comment="bom", block="BASE")
+    await _seed_feedback(session, aid, rating=3, made_sense=False, comment="puxado", block="BUILD")
+    text, stats = await feedback_summary(session, _ctx(aid), aid)
+    assert stats["count"] == 2
+    assert "Feedback recente (2 avaliações" in text
+    assert "bom" in text or "puxado" in text
+
+
+async def test_feedback_summary_empty_is_nd(session):
+    aid = uuid.uuid4()
+    assert await feedback_summary(session, _ctx(aid), aid) == ("n/d", {})
+
+
+async def test_feedback_summary_isolated_per_athlete(session):
+    a, b = uuid.uuid4(), uuid.uuid4()
+    await _seed_feedback(session, a, rating=5, made_sense=True, comment="de A", block="BASE")
+    text_b, stats_b = await feedback_summary(session, _ctx(b), b)
+    assert (text_b, stats_b) == ("n/d", {})  # B não vê o feedback de A
