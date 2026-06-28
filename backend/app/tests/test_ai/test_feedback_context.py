@@ -5,7 +5,7 @@ from datetime import date
 from app.core.tenant import TenantContext
 from app.models.ai import AiRecommendation, AiRecommendationFeedback
 from app.models.enums import RecommendationDecision, RiskLevel
-from app.services.ai.feedback_context import FeedbackItem, summarize, feedback_summary
+from app.services.ai.feedback_context import FeedbackItem, summarize, feedback_summary, _recency_weight
 
 
 def _ctx(aid):
@@ -127,23 +127,19 @@ async def test_feedback_summary_isolated_per_athlete(session):
 
 
 def test_recency_weight_today_is_one():
-    from app.services.ai.feedback_context import _recency_weight
     assert _recency_weight(date(2026, 6, 30), date(2026, 6, 30)) == 1.0
 
 
 def test_recency_weight_one_halflife_is_half():
-    from app.services.ai.feedback_context import _recency_weight
     # 30 dias = uma meia-vida
     assert _recency_weight(date(2026, 5, 31), date(2026, 6, 30)) == pytest.approx(0.5)
 
 
 def test_recency_weight_two_halflives_is_quarter():
-    from app.services.ai.feedback_context import _recency_weight
     # 60 dias = duas meias-vidas
     assert _recency_weight(date(2026, 5, 1), date(2026, 6, 30)) == pytest.approx(0.25)
 
 
 def test_recency_weight_future_date_clamps_to_one():
-    from app.services.ai.feedback_context import _recency_weight
     # data futura (skew) → idade 0 → peso 1.0
     assert _recency_weight(date(2026, 7, 5), date(2026, 6, 30)) == 1.0

@@ -126,7 +126,7 @@ async def feedback_summary(
     items: list[FeedbackItem] = []
     for fb, rec in rows:
         workout_type = ((rec.payload or {}).get("signals") or {}).get("workout_type")
-        when = (fb.created_at or datetime.now(timezone.utc)).date()
+        when = (fb.created_at or now).date()
         items.append(FeedbackItem(
             rating=fb.rating, made_sense=fb.made_sense,
             comment=fb.comment, workout_type=workout_type, when=when,
