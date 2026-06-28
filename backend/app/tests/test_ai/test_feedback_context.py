@@ -28,8 +28,11 @@ async def _seed_feedback(session, aid, *, rating, made_sense, comment, workout_t
     await session.flush()
 
 
+_AS_OF = date(2026, 6, 20)
+
+
 def _items():
-    # mais recente primeiro
+    # mais recente primeiro (datas relativas a _AS_OF)
     return [
         FeedbackItem(5, True, "perfeito", "ENDURANCE", date(2026, 6, 20)),
         FeedbackItem(3, False, "muito puxado no fim", "VO2MAX", date(2026, 6, 12)),
@@ -38,37 +41,61 @@ def _items():
 
 
 def test_summarize_aggregates_overall_and_by_workout_type():
-    text, stats = summarize(_items())
+    text, stats = summarize(_items(), as_of=_AS_OF)
     assert stats["count"] == 3
-    assert stats["avg_rating"] == 4.0
-    assert stats["made_sense_pct"] == 67  # 3 responderam made_sense, 2 True -> 67%
+    # média PONDERADA por recência (o 5 de hoje puxa acima da média simples 4.0)
+    assert stats["avg_rating"] == 4.1
+    assert stats["weighted"] is True
+    assert stats["half_life_days"] == 30
+    assert stats["made_sense_pct"] == 67  # True(w1.0)+True(w.71) sobre True+False+True ponderado
     assert stats["by_workout_type"]["VO2MAX"]["count"] == 2
     assert stats["by_workout_type"]["VO2MAX"]["avg_rating"] == 3.5
-    assert "Feedback recente (3 avaliações, nota média 4.0" in text
+    assert "Feedback recente (3 avaliações, nota média ponderada por recência 4.1" in text
     assert "Por tipo:" in text
 
 
 def test_summarize_includes_recent_comments_with_label():
-    text, _ = summarize(_items(), comment_limit=5)
+    text, _ = summarize(_items(), comment_limit=5, as_of=_AS_OF)
     assert "[2026-06-20 · ENDURANCE] perfeito" in text
     assert "[2026-06-12 · VO2MAX] muito puxado no fim" in text
 
 
 def test_summarize_respects_comment_limit_most_recent_first():
-    text, _ = summarize(_items(), comment_limit=1)
+    text, _ = summarize(_items(), comment_limit=1, as_of=_AS_OF)
     assert "perfeito" in text          # mais recente
     assert "muito puxado" not in text  # cortado pelo limite
 
 
 def test_summarize_empty_is_nd():
-    assert summarize([]) == ("n/d", {})
+    assert summarize([], as_of=_AS_OF) == ("n/d", {})
 
 
 def test_summarize_type_none_groups_under_dash():
-    text, stats = summarize([FeedbackItem(4, None, None, None, date(2026, 6, 1))])
+    text, stats = summarize([FeedbackItem(4, None, None, None, date(2026, 6, 1))], as_of=_AS_OF)
     assert stats["by_workout_type"]["—"]["count"] == 1
     assert stats["made_sense_pct"] is None   # ninguém respondeu made_sense
     assert "Por tipo:" not in text           # "—" não vira recorte textual
+
+
+def test_summarize_weights_recent_feedback_more():
+    as_of = date(2026, 6, 30)
+    items = [
+        FeedbackItem(5, True, None, "ENDURANCE", date(2026, 6, 30)),   # hoje, w=1.0
+        FeedbackItem(1, True, None, "ENDURANCE", date(2026, 4, 1)),    # 90d atrás, w≈0.125
+    ]
+    _, stats = summarize(items, as_of=as_of)
+    # média simples seria 3.0; ponderada favorece fortemente o 5 recente
+    assert stats["avg_rating"] > 4.0
+
+
+def test_summarize_same_age_equals_simple_mean():
+    as_of = date(2026, 6, 30)
+    items = [
+        FeedbackItem(2, None, None, "ENDURANCE", date(2026, 6, 20)),
+        FeedbackItem(4, None, None, "ENDURANCE", date(2026, 6, 20)),
+    ]
+    _, stats = summarize(items, as_of=as_of)
+    assert stats["avg_rating"] == 3.0  # mesma idade → pesos se cancelam
 
 
 @pytest.mark.asyncio
@@ -78,6 +105,8 @@ async def test_feedback_summary_reads_and_aggregates(session):
     await _seed_feedback(session, aid, rating=3, made_sense=False, comment="puxado", workout_type="VO2MAX")
     text, stats = await feedback_summary(session, _ctx(aid), aid)
     assert stats["count"] == 2
+    assert stats["weighted"] is True       # prova que as_of foi injetado e a média é ponderada
+    assert stats["half_life_days"] == 30
     assert stats["by_workout_type"]["VO2MAX"]["count"] == 1
     assert "Feedback recente (2 avaliações" in text
     assert "bom" in text or "puxado" in text

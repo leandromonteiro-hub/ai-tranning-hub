@@ -38,26 +38,34 @@ def _recency_weight(when: date, as_of: date) -> float:
     return 0.5 ** (age_days / _HALF_LIFE_DAYS)
 
 
-def _rate(group: list["FeedbackItem"]) -> dict:
+def _rate(group: list["FeedbackItem"], as_of: date) -> dict:
     n = len(group)
-    avg = round(sum(i.rating for i in group) / n, 1)
-    answered = [i.made_sense for i in group if i.made_sense is not None]
-    pct = round(100 * sum(1 for m in answered if m) / len(answered)) if answered else None
+    weights = [_recency_weight(i.when, as_of) for i in group]
+    wsum = sum(weights)
+    avg = round(sum(w * i.rating for w, i in zip(weights, group)) / wsum, 1)
+    answered = [(w, i.made_sense) for w, i in zip(weights, group) if i.made_sense is not None]
+    if answered:
+        den = sum(w for w, _ in answered)
+        num = sum(w for w, m in answered if m)
+        pct = round(100 * num / den)
+    else:
+        pct = None
     return {"count": n, "avg_rating": avg, "made_sense_pct": pct}
 
 
-def summarize(items: list[FeedbackItem], comment_limit: int = _DEFAULT_COMMENT_LIMIT) -> tuple[str, dict]:
-    """Aggregate feedback (most-recent-first) into (pt-BR text, stats) por tipo de treino. ('n/d', {}) when empty."""
+def summarize(items: list[FeedbackItem], comment_limit: int = _DEFAULT_COMMENT_LIMIT, *, as_of: date) -> tuple[str, dict]:
+    """Aggregate feedback (most-recent-first) into (pt-BR text, stats) por tipo de treino,
+    ponderado por recência (decay exponencial, meia-vida _HALF_LIFE_DAYS). ('n/d', {}) when empty."""
     if not items:
         return "n/d", {}
 
-    overall = _rate(items)
+    overall = _rate(items, as_of)
     by_workout_type: dict[str, dict] = {}
     grouped: dict[str, list[FeedbackItem]] = {}
     for i in items:
         grouped.setdefault(i.workout_type or "—", []).append(i)
     for wtype, group in grouped.items():
-        by_workout_type[wtype] = _rate(group)
+        by_workout_type[wtype] = _rate(group, as_of)
 
     comments: list[str] = []
     for i in items:
@@ -66,9 +74,10 @@ def summarize(items: list[FeedbackItem], comment_limit: int = _DEFAULT_COMMENT_L
         if len(comments) >= comment_limit:
             break
 
-    stats = {**overall, "by_workout_type": by_workout_type}
+    stats = {**overall, "by_workout_type": by_workout_type,
+             "weighted": True, "half_life_days": _HALF_LIFE_DAYS}
 
-    head = f"Feedback recente ({overall['count']} avaliações, nota média {overall['avg_rating']}"
+    head = f"Feedback recente ({overall['count']} avaliações, nota média ponderada por recência {overall['avg_rating']}"
     if overall["made_sense_pct"] is not None:
         head += f", fez sentido {overall['made_sense_pct']}%"
     head += ")"
@@ -100,7 +109,8 @@ async def feedback_summary(
 ) -> tuple[str, dict]:
     """Read recent feedback for one athlete (tenant-scoped) and summarise it."""
     ctx.assert_can_access(athlete_id)
-    cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=window_days)
     stmt = (
         select(AiRecommendationFeedback, AiRecommendation)
         .join(AiRecommendation,
@@ -121,4 +131,4 @@ async def feedback_summary(
             rating=fb.rating, made_sense=fb.made_sense,
             comment=fb.comment, workout_type=workout_type, when=when,
         ))
-    return summarize(items, comment_limit)
+    return summarize(items, comment_limit, as_of=now.date())
