@@ -92,6 +92,7 @@ def test_feedback_line_renders_when_count_positive():
     out = feedback_line({"count": 4, "avg_rating": 4.2, "made_sense_pct": 88})
     assert "4" in out and "4.2" in out and "88%" in out
     assert "avalia" in out.lower()
+    assert "ponderada" in out.lower()  # label reflete o decay por recência
 
 
 def test_feedback_line_empty_when_no_feedback():

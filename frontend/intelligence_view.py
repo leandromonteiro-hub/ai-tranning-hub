@@ -58,7 +58,7 @@ def feedback_line(stats: dict | None) -> str:
     avg = stats.get("avg_rating")
     parts = f"📝 Considerou suas últimas {n} avaliações"
     if avg is not None:
-        parts += f" — nota média {avg}"
+        parts += f" — nota média ponderada {avg}"
     pct = stats.get("made_sense_pct")
     if pct is not None:
         parts += f" · fez sentido {pct}%"
