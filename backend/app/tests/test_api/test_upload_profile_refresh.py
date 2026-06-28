@@ -1,8 +1,14 @@
-"""POST /imports/upload refreshes the reverse-engineered profile when new
-workouts land, and skips it on pure-duplicate uploads."""
+"""POST /imports/upload enqueues the profile-regen job when new workouts land,
+and skips enqueuing on pure-duplicate uploads.
+
+After Task 3 the upload route no longer calls generate_and_persist_profile inline;
+it enqueues regenerate_profile_task (best-effort). These tests patch that task so
+no real broker is hit.
+"""
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 import pytest_asyncio
@@ -19,6 +25,9 @@ from app.models.athlete import Athlete
 from app.models.enums import Role
 
 pytestmark = pytest.mark.asyncio
+
+# Patch target for the Celery enqueue.
+_ENQUEUE_TARGET = "app.api.routes.imports.regenerate_profile_task"
 
 
 @pytest_asyncio.fixture
@@ -60,18 +69,18 @@ async def _token(client, email):
 
 
 async def test_upload_refreshes_profile_only_on_new_workouts(env, monkeypatch):
-    calls = {"n": 0}
-
-    async def _spy(*a, **k):
-        calls["n"] += 1
-        return {}
-
+    """New workouts → regenerate_profile_task.delay() called once + profile_task_id set.
+    Pure-duplicate upload → no enqueue + profile_task_id is None."""
     async def _noop(*a, **k):
         return None
 
-    # Stub the heavy services so the test exercises only the refresh wiring.
-    monkeypatch.setattr(imports_route, "generate_and_persist_profile", _spy)
+    # Stub the heavy inline service so the test exercises only the enqueue wiring.
     monkeypatch.setattr(imports_route, "recompute_load_metrics", _noop)
+
+    # Patch the Celery task (best-effort enqueue).
+    mock_task = MagicMock()
+    mock_task.delay.return_value = MagicMock(id="upload-task-id")
+    monkeypatch.setattr(imports_route, "regenerate_profile_task", mock_task)
 
     h = {"Authorization": f"Bearer {await _token(env.client, 'a@example.com')}"}
     csv = b"date,duration_s,avg_power\n2026-05-01,3600,200\n"
@@ -81,25 +90,25 @@ async def test_upload_refreshes_profile_only_on_new_workouts(env, monkeypatch):
         files={"files": ("a.csv", csv, "text/csv")},
     )
     assert r1.status_code == 200, r1.text
-    assert calls["n"] == 1  # a new workout landed -> profile refreshed
+    body1 = r1.json()
+    assert mock_task.delay.call_count == 1  # a new workout landed -> regen enqueued
+    assert body1.get("profile_task_id") == "upload-task-id"
 
-    # Same bytes again -> duplicate -> no new workouts -> no refresh.
+    # Same bytes again -> duplicate -> no new workouts -> no enqueue.
     r2 = await env.client.post(
         "/api/v1/imports/upload", headers=h,
         files={"files": ("a.csv", csv, "text/csv")},
     )
     assert r2.status_code == 200, r2.text
-    assert calls["n"] == 1
+    body2 = r2.json()
+    assert mock_task.delay.call_count == 1  # still 1 — no extra enqueue on duplicate
+    assert body2.get("profile_task_id") is None
 
 
 async def test_upload_skips_refresh_when_recompute_false(env, monkeypatch):
-    calls = {"n": 0}
-
-    async def _spy(*a, **k):
-        calls["n"] += 1
-        return {}
-
-    monkeypatch.setattr(imports_route, "generate_and_persist_profile", _spy)
+    """recompute=false → regenerate_profile_task.delay() NOT called at all."""
+    mock_task = MagicMock()
+    monkeypatch.setattr(imports_route, "regenerate_profile_task", mock_task)
 
     h = {"Authorization": f"Bearer {await _token(env.client, 'a@example.com')}"}
     csv = b"date,duration_s,avg_power\n2026-05-02,3600,210\n"
@@ -108,4 +117,4 @@ async def test_upload_skips_refresh_when_recompute_false(env, monkeypatch):
         files={"files": ("b.csv", csv, "text/csv")},
     )
     assert r.status_code == 200, r.text
-    assert calls["n"] == 0  # recompute disabled -> no profile refresh
+    assert mock_task.delay.call_count == 0  # recompute disabled -> no enqueue
