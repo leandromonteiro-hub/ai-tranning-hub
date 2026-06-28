@@ -8,6 +8,7 @@ ships a working feedback loop in one Python codebase with near-zero overhead.
 from __future__ import annotations
 
 import os
+import time
 from datetime import date, timedelta
 
 import httpx
@@ -16,6 +17,7 @@ import streamlit as st
 import calendar_view as cv
 import intelligence_view as iv
 import streamlit.components.v1 as components
+from job_poll import poll_decision
 
 API = os.environ.get("STREAMLIT_API_BASE_URL", "http://localhost:8000/api/v1")
 
@@ -125,11 +127,35 @@ def import_tab(token: str) -> None:
     if files and st.button("Enviar"):
         multipart = [("files", (f.name, f.getvalue())) for f in files]
         resp = api("POST", "/imports/upload", token=token, files=multipart)
-        if resp.status_code == 200:
-            st.success("Importação concluída")
-            st.dataframe(pd.DataFrame(resp.json()))
-        else:
+        if resp.status_code != 200:
             st.error(resp.text)
+            return
+        body = resp.json()
+        st.success("Importação concluída")
+        st.dataframe(pd.DataFrame(body.get("files", [])))
+
+        task_id = body.get("profile_task_id")
+        if task_id:
+            _await_profile_regen(token, task_id)
+
+
+def _await_profile_regen(token: str, task_id: str, max_attempts: int = 30) -> None:
+    """Poll the async profile-regeneration job and report when the profile is fresh."""
+    with st.spinner("🔄 Atualizando seu perfil…"):
+        for attempt in range(1, max_attempts + 1):
+            r = api("GET", f"/jobs/{task_id}", token=token)
+            state = r.json().get("state", "PENDING") if r.status_code == 200 else "PENDING"
+            decision = poll_decision(state, attempt, max_attempts)
+            if decision == "done":
+                st.success("Perfil atualizado.")
+                return
+            if decision == "failed":
+                st.warning("O perfil será atualizado em instantes.")
+                return
+            if decision == "giveup":
+                st.info("O perfil está sendo atualizado em segundo plano.")
+                return
+            time.sleep(1)
 
 
 def recommendations_tab(token: str, anamnese_ok: bool = True) -> None:
