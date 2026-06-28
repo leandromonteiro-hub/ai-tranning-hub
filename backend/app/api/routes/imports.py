@@ -14,8 +14,6 @@ from app.core.logging import get_logger
 from app.core.tenant import TenantContext
 from app.schemas.onboarding import (
     IngestionSummary,
-    ProfileSummary,
-    RichnessSummary,
     TrainingPeaksOnboardingResponse,
 )
 from app.jobs.profile_job import regenerate_profile_task
@@ -87,20 +85,17 @@ async def onboard_trainingpeaks_export(
     The filenames MUST be preserved so the orchestrator can classify each zip by
     its prefix (case-insensitive: MetricsExport / WorkoutExport / WorkoutFileExport).
 
-    Processing steps (synchronous — validation scope, 2-athlete pilot):
+    Processing steps:
     1. Stage each uploaded zip into a ``tempfile.TemporaryDirectory`` with its
        original filename so ``import_athlete_folder`` can classify by prefix.
     2. Call ``import_athlete_folder`` (Task-1 pipeline) — idempotent, multi-tenant
-       scoped to ``ctx.athlete_id``.
-    3. Call ``generate_and_persist_profile`` (Task-2 analysis) — idempotent,
-       stores ``twin_seed`` + ``data_richness`` on ``AthleteProfile``.
-    4. Commit the session.
-    5. Return ingestion counts + data-richness index + profile summary.
-
-    **Scalability note:** This endpoint is synchronous and suitable for small
-    historical exports (validation scope: 2 athletes, typical TP exports <50 MB).
-    For large batches, move to the async Celery path (see ``app.jobs.import_job``
-    for the existing job pattern) — design-only, not yet wired up here.
+       scoped to ``ctx.athlete_id``. Ingestion runs INLINE.
+    3. Commit the ingestion so the async worker's own session can see it.
+    4. Enqueue the heavy profile regeneration (``regenerate_profile_task``) on the
+       Celery worker — best-effort; a broker outage never fails the ingestion.
+    5. Return ingestion counts + ``profile_task_id``. The profile (twin_seed /
+       data_richness) is produced ASYNC; the client polls ``GET /jobs/{id}`` and
+       fetches it via ``/athletes/me/intelligence`` on SUCCESS.
 
     **Multi-tenant isolation:** all reads and writes are scoped to
     ``ctx.athlete_id``; one athlete's upload never touches another's rows.
@@ -127,27 +122,21 @@ async def onboard_trainingpeaks_export(
             db, ctx, ctx.athlete_id, tmp_path, source="trainingpeaks_export"
         )
 
-    # Step 3: Run the Task-2 analysis pipeline (idempotent) — outside the
-    # TemporaryDirectory context (tmp files no longer needed).
-    profile_summary = await generate_and_persist_profile(db, ctx, ctx.athlete_id)
-
-    # Step 4: Commit.
+    # Step 3: Commit the ingestion so the async worker (its own session) sees it.
     await db.commit()
 
-    # Step 5: Build and return the response.
-    ingestion_dict = dataclasses.asdict(ingestion_report)
-    richness_dict = profile_summary["richness"]
+    # Step 4: Enqueue the heavy profile regeneration (best-effort). A broker
+    # outage must never fail the onboarding ingestion that already committed.
+    profile_task_id = ""
+    try:
+        task = regenerate_profile_task.delay(str(ctx.athlete_id), ctx.tenant_id)
+        profile_task_id = task.id
+    except Exception:
+        log.exception("profile regen enqueue failed; onboarding ingestion kept")
 
+    # Step 5: Build and return the response (profile arrives async).
+    ingestion_dict = dataclasses.asdict(ingestion_report)
     return TrainingPeaksOnboardingResponse(
         ingestion=IngestionSummary(**ingestion_dict),
-        richness=RichnessSummary(**richness_dict),
-        profile=ProfileSummary(
-            n_workouts=profile_summary["n_workouts"],
-            weeks=profile_summary["weeks"],
-            ftp_recent=profile_summary["ftp_recent"],
-            n_blocks=profile_summary["n_blocks"],
-            n_races=profile_summary["n_races"],
-            excluded_power_streams=profile_summary["excluded_power_streams"],
-            richness=richness_dict,
-        ),
+        profile_task_id=profile_task_id,
     )

@@ -1,17 +1,28 @@
-"""T4.3 — Onboarding endpoint: POST /imports/trainingpeaks-export.
+"""T4.3 / T4 — Onboarding endpoint: POST /imports/trainingpeaks-export.
+
+After Task 4 the endpoint INGESTS inline and ENQUEUES the heavy profile
+regeneration on the Celery worker (it no longer builds the profile during the
+request). So the response carries ``ingestion`` + ``profile_task_id`` and NO
+longer ``profile``/``richness``, and ``twin_seed`` is produced asynchronously.
 
 Tests:
 - Athlete A uploads three synthetic TP zips → 200, ingestion counts > 0,
-  richness present, profile summary present, A has WorkoutCompleted rows +
+  ``profile_task_id`` present, enqueue called once, no ``profile``/``richness``.
+- A has WorkoutCompleted rows inline; simulating the worker regen then yields
   AthleteProfile.twin_seed.
 - Isolation: Athlete B has ZERO WorkoutCompleted rows and twin_seed is None.
 - Idempotency: A uploads the same zips again → no duplication.
+- Path traversal: malicious filenames are sanitized to basename.
+
+Every test patches ``app.api.routes.imports.regenerate_profile_task`` so no real
+broker is hit.
 """
 from __future__ import annotations
 
 import gzip
 import io
 import zipfile
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -23,13 +34,18 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import get_db
 from app.core.security import hash_password
+from app.core.tenant import TenantContext
 from app.main import app
 from app.models import Base
 from app.models.athlete import Athlete, AthleteProfile
 from app.models.enums import Role
 from app.models.workout import WorkoutCompleted
+from app.services.analysis.profile_service import generate_and_persist_profile
 
 pytestmark = pytest.mark.asyncio
+
+# Patch target for the enqueue — used by every test that hits the endpoint.
+_ENQUEUE_TARGET = "app.api.routes.imports.regenerate_profile_task"
 
 # ---------------------------------------------------------------------------
 # Synthetic zip builders (in-test, no real athlete data)
@@ -190,16 +206,19 @@ async def _token(client: AsyncClient, email: str) -> str:
 # Tests
 # ---------------------------------------------------------------------------
 
-async def test_onboarding_endpoint_returns_200_with_ingestion_richness_profile(client):
-    """Athlete A uploads TP export zips → 200 response with ingestion/richness/profile."""
+async def test_onboarding_endpoint_returns_200_with_ingestion_and_task_id(client):
+    """Athlete A uploads TP export zips → 200 with ingestion counts + an async
+    ``profile_task_id`` (enqueue called once); no inline profile/richness."""
     token_a = await _token(client, "athlete_a@example.com")
     headers = {"Authorization": f"Bearer {token_a}"}
 
-    r = await client.post(
-        "/api/v1/imports/trainingpeaks-export",
-        headers=headers,
-        files=_build_upload_files(),
-    )
+    with patch(_ENQUEUE_TARGET) as t:
+        t.delay.return_value = MagicMock(id="onb-task")
+        r = await client.post(
+            "/api/v1/imports/trainingpeaks-export",
+            headers=headers,
+            files=_build_upload_files(),
+        )
     assert r.status_code == 200, r.text
 
     body = r.json()
@@ -211,45 +230,43 @@ async def test_onboarding_endpoint_returns_200_with_ingestion_richness_profile(c
     # Recovery days from metrics.csv (2 days of HRV)
     assert ingestion["recovery_days"] >= 1
 
-    # Richness dict present
-    assert "richness" in body
-    richness = body["richness"]
-    assert "score" in richness
-    assert "label" in richness
+    # Profile regeneration was enqueued and its id surfaced.
+    t.delay.assert_called_once()
+    assert body.get("profile_task_id"), "profile_task_id missing/empty"
+    assert body["profile_task_id"] == "onb-task"
 
-    # Profile summary present
-    assert "profile" in body
-    profile_summary = body["profile"]
-    assert "n_workouts" in profile_summary
-    assert "richness" in profile_summary
+    # Profile/richness are now produced async — NOT in the response.
+    assert "profile" not in body
+    assert "richness" not in body
 
 
 async def test_athlete_a_has_workouts_and_twin_seed_after_upload(client):
-    """After upload, athlete A has WorkoutCompleted rows and an AthleteProfile with twin_seed."""
+    """The endpoint creates WorkoutCompleted rows inline; the (now async) profile
+    regen — simulated here by running it against the test DB — yields twin_seed."""
     from app.core.database import get_db as real_get_db
 
     token_a = await _token(client, "athlete_a@example.com")
     headers = {"Authorization": f"Bearer {token_a}"}
 
-    r = await client.post(
-        "/api/v1/imports/trainingpeaks-export",
-        headers=headers,
-        files=_build_upload_files(),
-    )
+    with patch(_ENQUEUE_TARGET) as t:
+        t.delay.return_value = MagicMock(id="onb-task")
+        r = await client.post(
+            "/api/v1/imports/trainingpeaks-export",
+            headers=headers,
+            files=_build_upload_files(),
+        )
     assert r.status_code == 200, r.text
 
     # Verify via the overridden DB session
     session_factory = app.dependency_overrides[real_get_db]
     async for db in session_factory():
         # Get athlete A's id
-        from sqlalchemy import select as sa_select
-        from app.models.athlete import Athlete as AthleteModel
         res = await db.execute(
-            sa_select(AthleteModel).where(AthleteModel.email == "athlete_a@example.com")
+            select(Athlete).where(Athlete.email == "athlete_a@example.com")
         )
         athlete_a = res.scalar_one()
 
-        # WorkoutCompleted rows
+        # WorkoutCompleted rows were created INLINE by the endpoint.
         wc_count = (await db.execute(
             select(func.count()).select_from(WorkoutCompleted).where(
                 WorkoutCompleted.athlete_id == athlete_a.id,
@@ -258,7 +275,14 @@ async def test_athlete_a_has_workouts_and_twin_seed_after_upload(client):
         )).scalar()
         assert wc_count >= 1, f"Expected workouts for A, got {wc_count}"
 
-        # AthleteProfile with twin_seed
+        # Simulate the Celery worker: run the profile regen against the test DB.
+        ctx = TenantContext(
+            athlete_id=athlete_a.id, tenant_id="tenant_a", role=Role.ATHLETE
+        )
+        await generate_and_persist_profile(db, ctx, athlete_a.id)
+        await db.commit()
+
+        # AthleteProfile with twin_seed now exists.
         profile_res = await db.execute(
             select(AthleteProfile).where(
                 AthleteProfile.athlete_id == athlete_a.id,
@@ -273,24 +297,25 @@ async def test_athlete_a_has_workouts_and_twin_seed_after_upload(client):
 
 
 async def test_isolation_athlete_b_unaffected_after_a_uploads(client):
-    """After A's upload, Athlete B has ZERO WorkoutCompleted rows and twin_seed is None."""
+    """After A's upload, Athlete B has ZERO WorkoutCompleted rows and twin_seed is
+    None (B never had a regen)."""
     from app.core.database import get_db as real_get_db
 
     token_a = await _token(client, "athlete_a@example.com")
-    r = await client.post(
-        "/api/v1/imports/trainingpeaks-export",
-        headers={"Authorization": f"Bearer {token_a}"},
-        files=_build_upload_files(),
-    )
+    with patch(_ENQUEUE_TARGET) as t:
+        t.delay.return_value = MagicMock(id="onb-task")
+        r = await client.post(
+            "/api/v1/imports/trainingpeaks-export",
+            headers={"Authorization": f"Bearer {token_a}"},
+            files=_build_upload_files(),
+        )
     assert r.status_code == 200, r.text
 
     # Now check athlete B's data
     session_factory = app.dependency_overrides[real_get_db]
     async for db in session_factory():
-        from sqlalchemy import select as sa_select
-        from app.models.athlete import Athlete as AthleteModel
         res = await db.execute(
-            sa_select(AthleteModel).where(AthleteModel.email == "athlete_b@example.com")
+            select(Athlete).where(Athlete.email == "athlete_b@example.com")
         )
         athlete_b = res.scalar_one()
 
@@ -326,21 +351,21 @@ async def test_idempotency_second_upload_no_duplication(client):
     headers = {"Authorization": f"Bearer {token_a}"}
 
     # First upload
-    r1 = await client.post(
-        "/api/v1/imports/trainingpeaks-export",
-        headers=headers,
-        files=_build_upload_files(),
-    )
+    with patch(_ENQUEUE_TARGET) as t:
+        t.delay.return_value = MagicMock(id="onb-task")
+        r1 = await client.post(
+            "/api/v1/imports/trainingpeaks-export",
+            headers=headers,
+            files=_build_upload_files(),
+        )
     assert r1.status_code == 200, r1.text
 
     # Count rows after first upload
     session_factory = app.dependency_overrides[real_get_db]
     count_after_first = None
     async for db in session_factory():
-        from sqlalchemy import select as sa_select
-        from app.models.athlete import Athlete as AthleteModel
         res = await db.execute(
-            sa_select(AthleteModel).where(AthleteModel.email == "athlete_a@example.com")
+            select(Athlete).where(Athlete.email == "athlete_a@example.com")
         )
         athlete_a = res.scalar_one()
         count_after_first = (await db.execute(
@@ -352,19 +377,19 @@ async def test_idempotency_second_upload_no_duplication(client):
         break
 
     # Second upload (same files)
-    r2 = await client.post(
-        "/api/v1/imports/trainingpeaks-export",
-        headers=headers,
-        files=_build_upload_files(),
-    )
+    with patch(_ENQUEUE_TARGET) as t:
+        t.delay.return_value = MagicMock(id="onb-task")
+        r2 = await client.post(
+            "/api/v1/imports/trainingpeaks-export",
+            headers=headers,
+            files=_build_upload_files(),
+        )
     assert r2.status_code == 200, r2.text
 
     # Count rows after second upload — must be identical
     async for db in session_factory():
-        from sqlalchemy import select as sa_select
-        from app.models.athlete import Athlete as AthleteModel
         res = await db.execute(
-            sa_select(AthleteModel).where(AthleteModel.email == "athlete_a@example.com")
+            select(Athlete).where(Athlete.email == "athlete_a@example.com")
         )
         athlete_a = res.scalar_one()
         count_after_second = (await db.execute(
@@ -418,11 +443,13 @@ async def test_path_traversal_filename_is_sanitized_to_basename(client, tmp_path
         ("files", ("../../WorkoutFileExport-evil.zip", wfe_bytes, ct2)),
     ]
 
-    r = await client.post(
-        "/api/v1/imports/trainingpeaks-export",
-        headers=headers,
-        files=malicious_files,
-    )
+    with patch(_ENQUEUE_TARGET) as t:
+        t.delay.return_value = MagicMock(id="onb-task")
+        r = await client.post(
+            "/api/v1/imports/trainingpeaks-export",
+            headers=headers,
+            files=malicious_files,
+        )
     assert r.status_code == 200, r.text
 
     # Nothing was written to the traversal target (no arbitrary file write).

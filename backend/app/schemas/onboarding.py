@@ -56,10 +56,10 @@ class TrainingPeaksOnboardingResponse(BaseModel):
 
     Fields:
         ingestion: counts and coverage from import_athlete_folder (IngestionReport).
-        richness:  data-richness index for this athlete (subset of RichnessIndex).
-        profile:   compact analysis summary from generate_and_persist_profile.
+        profile_task_id: id of the async profile-regeneration Celery task; the
+            client polls GET /jobs/{id} and fetches the profile via
+            /athletes/me/intelligence on SUCCESS.
     """
 
     ingestion: IngestionSummary
-    richness: RichnessSummary
-    profile: ProfileSummary
+    profile_task_id: str
