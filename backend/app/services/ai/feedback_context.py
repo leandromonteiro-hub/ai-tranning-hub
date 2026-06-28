@@ -19,6 +19,7 @@ from app.models.ai import AiRecommendation, AiRecommendationFeedback
 
 _DEFAULT_WINDOW_DAYS = 90
 _DEFAULT_COMMENT_LIMIT = 5
+_HALF_LIFE_DAYS = 30
 
 
 @dataclass
@@ -28,6 +29,13 @@ class FeedbackItem:
     comment: str | None
     workout_type: str | None
     when: date
+
+
+def _recency_weight(when: date, as_of: date) -> float:
+    """Peso exponencial por recência: 0.5^(idade_dias / meia-vida).
+    Idade negativa (data futura / skew de relógio) é tratada como 0 → peso 1.0."""
+    age_days = max(0, (as_of - when).days)
+    return 0.5 ** (age_days / _HALF_LIFE_DAYS)
 
 
 def _rate(group: list["FeedbackItem"]) -> dict:
