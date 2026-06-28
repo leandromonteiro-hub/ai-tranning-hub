@@ -49,3 +49,11 @@ class ImportedFileRead(BaseModel):
     rows_imported: int
     error_message: str | None = None
     created_at: datetime
+
+
+class UploadResponse(BaseModel):
+    """Response for POST /imports/upload: imported files + the async profile
+    regeneration task id (None when no regen was enqueued)."""
+
+    files: list[ImportedFileRead]
+    profile_task_id: str | None = None

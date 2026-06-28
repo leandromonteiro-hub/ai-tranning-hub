@@ -18,8 +18,8 @@ from app.schemas.onboarding import (
     RichnessSummary,
     TrainingPeaksOnboardingResponse,
 )
-from app.schemas.workout import ImportedFileRead
-from app.services.analysis.profile_service import generate_and_persist_profile
+from app.jobs.profile_job import regenerate_profile_task
+from app.schemas.workout import ImportedFileRead, UploadResponse
 from app.services.ingestion.ingestion_service import import_file
 from app.services.ingestion.tp_export_importer import import_athlete_folder
 from app.services.metrics.recompute import recompute_load_metrics
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/imports", tags=["imports"])
 log = get_logger(__name__)
 
 
-@router.post("/upload", response_model=list[ImportedFileRead])
+@router.post("/upload", response_model=UploadResponse)
 async def upload_files(
     files: list[UploadFile] = File(...),
     source: str | None = Query(default="manual"),
@@ -51,19 +51,24 @@ async def upload_files(
         results.append(result.imported_file)
         workouts_created += result.workouts_created
 
+    profile_task_id: str | None = None
     if recompute:
+        # PMC (load metrics) stays inline — it's light. Only the heavy profile
+        # regeneration (twin_seed / FTP / power curve) is offloaded to the worker.
         await recompute_load_metrics(db, ctx, ctx.athlete_id)
-        # Keep the reverse-engineered profile (twin_seed / FTP / power curve)
-        # fresh so the intelligence panel and recommendations reflect the newly
-        # imported work. Only when new workouts landed; a profile-build failure
-        # must never fail the import itself.
+        await db.commit()
         if workouts_created > 0:
+            # Enqueue is best-effort: a broker outage must never fail the import.
             try:
-                await generate_and_persist_profile(db, ctx, ctx.athlete_id)
+                task = regenerate_profile_task.delay(str(ctx.athlete_id), ctx.tenant_id)
+                profile_task_id = task.id
             except Exception:
-                log.exception("profile refresh after upload failed; import kept")
+                log.exception("profile regen enqueue failed; import kept")
 
-    return [ImportedFileRead.model_validate(r) for r in results]
+    return UploadResponse(
+        files=[ImportedFileRead.model_validate(r) for r in results],
+        profile_task_id=profile_task_id,
+    )
 
 
 @router.post("/trainingpeaks-export", response_model=TrainingPeaksOnboardingResponse)
