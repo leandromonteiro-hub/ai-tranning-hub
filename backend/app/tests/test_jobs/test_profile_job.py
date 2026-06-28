@@ -5,8 +5,6 @@ import pytest
 
 from app.jobs import profile_job
 
-pytestmark = pytest.mark.asyncio
-
 
 def _fake_redis(acquired: bool):
     """Fake aioredis client whose lock.acquire() returns `acquired`."""
@@ -19,6 +17,7 @@ def _fake_redis(acquired: bool):
     return client, lock
 
 
+@pytest.mark.asyncio
 async def test_regenerate_runs_profile_when_lock_acquired():
     aid = str(uuid.uuid4())
     client, lock = _fake_redis(acquired=True)
@@ -34,9 +33,11 @@ async def test_regenerate_runs_profile_when_lock_acquired():
     gen.assert_awaited_once()
     fake_session.commit.assert_awaited_once()
     lock.release.assert_awaited_once()
+    client.aclose.assert_awaited_once()
     assert out == {"status": "done", "n_workouts": 42}
 
 
+@pytest.mark.asyncio
 async def test_regenerate_skips_when_lock_taken():
     aid = str(uuid.uuid4())
     client, lock = _fake_redis(acquired=False)
@@ -46,6 +47,7 @@ async def test_regenerate_skips_when_lock_taken():
         out = await profile_job._do_regenerate(aid, "tenant-1")
     gen.assert_not_awaited()           # não toca o DB quando já há regen rodando
     lock.release.assert_not_awaited()  # não solta um lock que não pegou
+    client.aclose.assert_awaited_once()
     assert out["status"] == "skipped"
 
 
