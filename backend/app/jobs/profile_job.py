@@ -19,7 +19,7 @@ from app.services.analysis.profile_service import generate_and_persist_profile
 
 log = get_logger(__name__)
 
-_LOCK_TTL_S = 900  # > task_time_limit; auto-expira se o worker morrer
+_LOCK_TTL_S = 960  # > celery task_time_limit (900s); auto-expira se o worker morrer
 
 
 async def _do_regenerate(athlete_id: str, tenant_id: str) -> dict:

@@ -102,5 +102,6 @@ async def test_job_status_returns_state_only(env):
 
 @pytest.mark.asyncio
 async def test_job_status_requires_auth(env):
-    resp = await env.client.get("/api/v1/jobs/abc-123")  # sem header
+    with patch("app.api.routes.jobs.AsyncResult", return_value=MagicMock(state="PENDING")):
+        resp = await env.client.get("/api/v1/jobs/abc-123")  # sem header
     assert resp.status_code in (401, 403)

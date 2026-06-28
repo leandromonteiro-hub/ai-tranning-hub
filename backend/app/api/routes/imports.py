@@ -127,7 +127,7 @@ async def onboard_trainingpeaks_export(
 
     # Step 4: Enqueue the heavy profile regeneration (best-effort). A broker
     # outage must never fail the onboarding ingestion that already committed.
-    profile_task_id = ""
+    profile_task_id = None
     try:
         task = regenerate_profile_task.delay(str(ctx.athlete_id), ctx.tenant_id)
         profile_task_id = task.id

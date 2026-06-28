@@ -62,4 +62,4 @@ class TrainingPeaksOnboardingResponse(BaseModel):
     """
 
     ingestion: IngestionSummary
-    profile_task_id: str
+    profile_task_id: str | None = None

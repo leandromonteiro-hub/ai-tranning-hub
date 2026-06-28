@@ -26,9 +26,6 @@ from app.models.enums import Role
 
 pytestmark = pytest.mark.asyncio
 
-# Patch target for the Celery enqueue.
-_ENQUEUE_TARGET = "app.api.routes.imports.regenerate_profile_task"
-
 
 @pytest_asyncio.fixture
 async def env():
