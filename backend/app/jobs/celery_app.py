@@ -21,4 +21,4 @@ celery.conf.update(
 # Ensure task modules are imported so Celery registers them.
 celery.autodiscover_tasks(["app.jobs"])
 
-from app.jobs import import_job, metrics_job  # noqa: E402,F401
+from app.jobs import import_job, metrics_job, profile_job  # noqa: E402,F401
