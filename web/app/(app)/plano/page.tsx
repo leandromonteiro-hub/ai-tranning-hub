@@ -1,4 +1,4 @@
-import { ComingSoon } from "@/components/ComingSoon";
+import { CalendarView } from '@/components/calendar/CalendarView'
 export default function Page() {
-  return <ComingSoon title="📅 Plano" milestone="M3" />;
+  return <CalendarView />
 }
