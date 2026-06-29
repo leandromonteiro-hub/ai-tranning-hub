@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addMonths, firstOfMonth, mondayOf, monthGridRange, monthLabel, weekDays } from '@/lib/weekRange'
+import { addMonths, firstOfMonth, latestMonth, mondayOf, monthGridRange, monthLabel, weekDays } from '@/lib/weekRange'
 
 describe('weekRange', () => {
   it('mondayOf retorna a segunda da semana', () => {
@@ -24,5 +24,9 @@ describe('weekRange', () => {
   it('monthGridRange cobre 6 semanas a partir da segunda que cobre o dia 1', () => {
     // junho/2026: dia 1 é segunda → grade começa 2026-06-01 e termina 41 dias depois
     expect(monthGridRange('2026-06-10')).toEqual(['2026-06-01', '2026-07-12'])
+  })
+  it('latestMonth pega o mês da data mais recente', () => {
+    expect(latestMonth(['2026-01-10', '2026-06-23', '2026-03-02'])).toBe('2026-06-01')
+    expect(latestMonth([])).toBeNull()
   })
 })

@@ -25,16 +25,16 @@ export function CalendarGrid({
 
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-[repeat(7,1fr)_220px] gap-2 text-[11px] font-semibold text-slate-400">
+      <div className="grid grid-cols-[repeat(7,minmax(0,1fr))_220px] gap-2 text-[11px] font-semibold text-slate-400">
         {DOW.map((d) => <div key={d}>{d}</div>)}
         <div>SUMMARY</div>
       </div>
       {mondays.map((monday) => (
-        <div key={monday} className="grid grid-cols-[repeat(7,1fr)_220px] gap-2">
+        <div key={monday} className="grid grid-cols-[repeat(7,minmax(0,1fr))_220px] gap-2">
           {weekDays(monday).map((iso) => {
             const day = byDate.get(iso)
             return (
-              <div key={iso} className="min-h-32 space-y-1 rounded bg-slate-100/50 p-1 dark:bg-slate-800/40">
+              <div key={iso} className="min-h-32 min-w-0 space-y-1 rounded bg-slate-100/50 p-1 dark:bg-slate-800/40">
                 <div className="text-[11px] text-slate-400">{Number(iso.slice(8, 10))}</div>
                 {day?.races.map((r) => <RaceFlag key={r.id} name={r.name} daysUntil={r.days_until} />)}
                 {day?.planned.map((p) => (

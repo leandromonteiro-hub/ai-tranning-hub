@@ -1,8 +1,8 @@
 "use client";
 import { useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { useCalendar } from '@/lib/hooks'
-import { addMonths, firstOfMonth, monthGridRange, monthLabel } from '@/lib/weekRange'
+import { useCalendar, useWorkouts } from '@/lib/hooks'
+import { addMonths, firstOfMonth, latestMonth, monthGridRange, monthLabel } from '@/lib/weekRange'
 import { CalendarGrid } from '@/components/calendar/CalendarGrid'
 import { WorkoutDetailDrawer } from '@/components/workout/WorkoutDetailDrawer'
 
@@ -11,8 +11,15 @@ function todayIso(): string {
 }
 
 export function CalendarView() {
-  const [ref, setRef] = useState<string>(() => firstOfMonth(todayIso()))
-  const [start, end] = monthGridRange(ref)
+  const today = todayIso()
+  // ref = mês escolhido pelo usuário; null = ainda no automático (mês com dados mais recentes).
+  const [ref, setRef] = useState<string | null>(null)
+  // Descobre o mês com os dados mais recentes (janela de ~2 anos) p/ abrir já povoado.
+  const { data: recent } = useWorkouts(addMonths(firstOfMonth(today), -24), today)
+  const autoMonth = recent ? latestMonth(recent.map((w) => w.workout_date)) : null
+  const month = ref ?? autoMonth ?? firstOfMonth(today)
+
+  const [start, end] = monthGridRange(month)
   const { data, isLoading, error } = useCalendar(start, end)
   const [openId, setOpenId] = useState<string | null>(null)
 
@@ -33,7 +40,7 @@ export function CalendarView() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setRef(firstOfMonth(todayIso()))}
+            onClick={() => setRef(firstOfMonth(today))}
             className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
           >
             Hoje
@@ -41,18 +48,18 @@ export function CalendarView() {
           <button
             type="button"
             aria-label="Mês anterior"
-            onClick={() => setRef((r) => addMonths(r, -1))}
+            onClick={() => setRef(addMonths(month, -1))}
             className="rounded-lg border border-slate-300 p-1.5 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
           <span className="min-w-36 text-center text-sm font-semibold text-slate-700 dark:text-slate-200">
-            {monthLabel(ref)}
+            {monthLabel(month)}
           </span>
           <button
             type="button"
             aria-label="Próximo mês"
-            onClick={() => setRef((r) => addMonths(r, 1))}
+            onClick={() => setRef(addMonths(month, 1))}
             className="rounded-lg border border-slate-300 p-1.5 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
           >
             <ChevronRight className="h-4 w-4" />

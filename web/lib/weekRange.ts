@@ -43,6 +43,13 @@ export function monthLabel(iso: string): string {
   return `${MONTHS_PT[m - 1]} ${y}`
 }
 
+/** Mês (YYYY-MM-01) da data mais recente da lista, ou null se vazia. */
+export function latestMonth(isoDates: string[]): string | null {
+  if (isoDates.length === 0) return null
+  const max = isoDates.reduce((mx, d) => (d > mx ? d : mx), isoDates[0])
+  return firstOfMonth(max)
+}
+
 /** Janela da grade do mês: 6 semanas (42 dias) a partir da segunda que cobre o dia 1. */
 export function monthGridRange(iso: string): [string, string] {
   const gridStart = mondayOf(firstOfMonth(iso))
