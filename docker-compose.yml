@@ -81,6 +81,11 @@ services:
     build: ./web
     environment:
       - API_BASE_URL=http://api:8000/api/v1
+      # Auto-login DEV (temporário): entra direto sem tela de login com o atleta
+      # de validação. Zerar/remover DEV_AUTO_LOGIN para reativar o login normal.
+      - DEV_AUTO_LOGIN=1
+      - DEV_LOGIN_EMAIL=leandro@athletehub.example.com
+      - DEV_LOGIN_PASSWORD=leandro12345
     ports:
       - "3000:3000"
     depends_on:
