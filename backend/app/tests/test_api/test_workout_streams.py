@@ -147,3 +147,22 @@ async def test_streams_downsampled(client, auth_headers, session, athlete_id):
 async def test_streams_404_for_unknown(client, auth_headers):
     r = await client.get(f"/api/v1/workouts/{uuid.uuid4()}/streams", headers=auth_headers)
     assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_streams_empty_when_no_stream(client, auth_headers, session, athlete_id):
+    w = WorkoutCompleted(
+        athlete_id=athlete_id,
+        started_at=datetime(2026, 5, 13, 6, tzinfo=timezone.utc),
+        workout_date=datetime(2026, 5, 13).date(),
+        name="sem stream",
+        workout_type=WorkoutType.ENDURANCE,
+        duration_s=60,
+    )
+    session.add(w)
+    await session.commit()
+    r = await client.get(f"/api/v1/workouts/{w.id}/streams", headers=auth_headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["n_points"] == 0
+    assert body["power"] == [] and body["time_s"] == []

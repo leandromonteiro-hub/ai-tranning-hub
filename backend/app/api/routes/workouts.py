@@ -109,14 +109,18 @@ async def get_workout_streams(
         return WorkoutStreamsRead(workout_id=workout_id, n_points=0)
     time_s = downsample([float(t) for t in (stream.time_s or [])], max_points)
     power = downsample(stream.power, max_points)
+    hr = downsample(stream.heart_rate, max_points)
+    cad = downsample(stream.cadence, max_points)
+    alt = downsample(stream.altitude, max_points)
+    n_points = next((len(s) for s in (power, time_s, hr, cad, alt) if s), 0)
     return WorkoutStreamsRead(
         workout_id=workout_id,
-        n_points=len(power) or len(time_s),
+        n_points=n_points,
         time_s=time_s,
         power=power,
-        heart_rate=downsample(stream.heart_rate, max_points),
-        cadence=downsample(stream.cadence, max_points),
-        altitude=downsample(stream.altitude, max_points),
+        heart_rate=hr,
+        cadence=cad,
+        altitude=alt,
     )
 
 
