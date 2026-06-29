@@ -1,4 +1,5 @@
-import { ComingSoon } from "@/components/ComingSoon";
+import { AnamneseView } from "@/components/anamnese/AnamneseView";
+
 export default function Page() {
-  return <ComingSoon title="🩺 Anamnese" milestone="M2" />;
+  return <AnamneseView />;
 }

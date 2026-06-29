@@ -38,6 +38,19 @@ export type LoadMetric = {
   monotony: number | null; strain: number | null
 }
 
+// --- Anamnese (perfil do atleta) ---
+export type AthleteProfile = {
+  id: string; athlete_id: string
+  birth_date: string | null; sex: string | null
+  height_cm: number | null; weight_kg: number | null
+  max_hr: number | null; resting_hr: number | null
+  primary_discipline: string | null; years_training: number | null
+  notes: string | null; goals: string | null
+  weekly_hours: number | null; weekly_days: number | null
+  injury_history: string | null; medical_conditions: string | null
+  has_power_meter: boolean; has_hr_monitor: boolean
+}
+
 // --- Provas ---
 export type Race = {
   id: string; athlete_id: string; name: string; race_date: string
