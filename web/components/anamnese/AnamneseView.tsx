@@ -108,12 +108,15 @@ function AnamneseFormCard({ initial, onSaved }: { initial: AnamneseForm; onSaved
 }
 
 export function AnamneseView() {
-  const { data, isLoading, mutate } = useProfile()
+  const { data, isLoading, error, mutate } = useProfile()
   return (
     <div className="space-y-5">
       <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">🩺 Anamnese</h1>
       {isLoading ? (
         <p className="text-sm text-slate-500">Carregando…</p>
+      ) : error && !data ? (
+        // não renderiza o form em branco num erro de carga — evita sobrescrever o perfil
+        <p className="text-sm text-red-600">Não foi possível carregar seu perfil. Recarregue a página.</p>
       ) : (
         <AnamneseFormCard key={data?.id ?? 'new'} initial={fromProfile(data)} onSaved={() => mutate()} />
       )}
