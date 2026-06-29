@@ -37,3 +37,15 @@ export type LoadMetric = {
   metric_date: string; daily_tss: number; ctl: number; atl: number; tsb: number
   monotony: number | null; strain: number | null
 }
+
+// --- Recomendações (IA do dia) ---
+export type Evidence = { evidence_type: string; description: string; similarity: number | null }
+export type Recommendation = {
+  id: string; target_date: string | null; kind: string; summary: string
+  physiological_objective: string | null; block_relation: string | null; rationale: string | null
+  adjust_if_tired: string | null; adjust_if_less_time: string | null
+  payload: Record<string, unknown> | null
+  risk_level: string; risk_flags: Record<string, unknown> | null
+  confidence: number | null; confidence_rationale: string | null
+  decision: string; created_at: string; evidence: Evidence[]
+}
