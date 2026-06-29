@@ -15,8 +15,8 @@ const strOrNull = (s: string): string | null => (s.trim() === '' ? null : s.trim
 /** Converte o formulário no corpo do PUT /athletes/me/profile (vazio → null). */
 export function toProfilePayload(f: AnamneseForm): Record<string, unknown> {
   return {
-    birth_date: f.birth_date || null,
-    sex: f.sex || null,
+    birth_date: strOrNull(f.birth_date),
+    sex: strOrNull(f.sex),
     weight_kg: numOrNull(f.weight_kg),
     height_cm: numOrNull(f.height_cm),
     max_hr: numOrNull(f.max_hr),

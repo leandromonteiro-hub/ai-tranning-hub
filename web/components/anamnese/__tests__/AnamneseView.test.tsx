@@ -15,5 +15,7 @@ describe('AnamneseView', () => {
     render(<AnamneseView />)
     expect(screen.getByText('🩺 Anamnese')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByDisplayValue('72')).toBeInTheDocument())
+    expect(screen.getByDisplayValue('M')).toBeInTheDocument() // sexo prefilled
+    expect(screen.getByLabelText(/medidor de potência/)).toBeChecked()
   })
 })
