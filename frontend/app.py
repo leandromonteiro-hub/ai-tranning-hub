@@ -147,8 +147,10 @@ def _await_profile_regen(token: str, task_id: str, max_attempts: int = 30) -> No
             state = r.json().get("state", "PENDING") if r.status_code == 200 else "PENDING"
             decision = poll_decision(state, attempt, max_attempts)
             if decision == "done":
-                st.success("Perfil atualizado.")
-                return
+                # toast sobrevive ao rerun; rerun faz o painel de inteligência
+                # recarregar o perfil recém-regerado sem esperar outra interação.
+                st.toast("Perfil atualizado.", icon="✅")
+                st.rerun()
             if decision == "failed":
                 st.warning("O perfil será atualizado em instantes.")
                 return
