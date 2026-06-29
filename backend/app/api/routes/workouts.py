@@ -5,16 +5,19 @@ import uuid
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_tenant
 from app.core.database import get_db
 from app.core.tenant import TenantContext
-from app.models.workout import WorkoutCompleted
+from app.models.workout import WorkoutCompleted, WorkoutStream
 from app.repositories.metrics_repo import FtpRepository
 from app.repositories.workout_repo import WorkoutRepository
+from app.schemas.streams import WorkoutStreamsRead
 from app.schemas.workout import WorkoutCompletedCreate, WorkoutCompletedRead
 from app.services.metrics import tss_calculator
+from app.services.metrics.downsample import downsample
 
 router = APIRouter(prefix="/workouts", tags=["workouts"])
 
@@ -83,6 +86,38 @@ async def get_workout(
     if not workout:
         raise HTTPException(status_code=404, detail="Workout not found")
     return WorkoutCompletedRead.model_validate(workout)
+
+
+@router.get("/{workout_id}/streams", response_model=WorkoutStreamsRead)
+async def get_workout_streams(
+    workout_id: uuid.UUID,
+    max_points: int = Query(default=1200, ge=1, le=5000),
+    ctx: TenantContext = Depends(get_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    repo = WorkoutRepository(db, ctx)
+    workout = await repo.get(workout_id)  # tenant-scoped; None se não for do atleta
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
+    stmt = select(WorkoutStream).where(
+        WorkoutStream.deleted_at.is_(None),
+        WorkoutStream.athlete_id == ctx.athlete_id,
+        WorkoutStream.workout_id == workout_id,
+    )
+    stream = (await db.execute(stmt)).scalars().first()
+    if stream is None:
+        return WorkoutStreamsRead(workout_id=workout_id, n_points=0)
+    time_s = downsample([float(t) for t in (stream.time_s or [])], max_points)
+    power = downsample(stream.power, max_points)
+    return WorkoutStreamsRead(
+        workout_id=workout_id,
+        n_points=len(power) or len(time_s),
+        time_s=time_s,
+        power=power,
+        heart_rate=downsample(stream.heart_rate, max_points),
+        cadence=downsample(stream.cadence, max_points),
+        altitude=downsample(stream.altitude, max_points),
+    )
 
 
 @router.delete("/{workout_id}", status_code=204)
