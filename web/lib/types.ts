@@ -38,6 +38,14 @@ export type LoadMetric = {
   monotony: number | null; strain: number | null
 }
 
+// --- Provas ---
+export type Race = {
+  id: string; athlete_id: string; name: string; race_date: string
+  discipline: string | null; priority: string; location: string | null
+  distance_km: number | null; elevation_gain_m: number | null; notes: string | null
+  created_at: string
+}
+
 // --- Importar ---
 export type ImportedFile = {
   id: string; filename: string; file_format: string; status: string
