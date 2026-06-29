@@ -1,4 +1,5 @@
-import { ComingSoon } from "@/components/ComingSoon";
+import { ProvasView } from "@/components/provas/ProvasView";
+
 export default function Page() {
-  return <ComingSoon title="🏁 Provas" milestone="M3" />;
+  return <ProvasView />;
 }
