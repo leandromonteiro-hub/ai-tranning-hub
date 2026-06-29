@@ -38,6 +38,20 @@ export type LoadMetric = {
   monotony: number | null; strain: number | null
 }
 
+// --- Admin (painel do treinador) ---
+export type Athlete = {
+  id: string; full_name: string; email: string; role: string
+  tenant_id: string; is_active: boolean; created_at: string
+}
+export type UsageMetrics = {
+  athletes: number; workouts: number; recommendations: number
+  feedback_count: number; avg_feedback_rating: number
+}
+export type AdminFeedback = {
+  id: string; recommendation_id: string; athlete_id: string; rating: number
+  made_sense: boolean | null; observed_result: string | null; comment: string | null; created_at: string
+}
+
 // --- Anamnese (perfil do atleta) ---
 export type AthleteProfile = {
   id: string; athlete_id: string
