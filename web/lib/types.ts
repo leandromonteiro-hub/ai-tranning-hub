@@ -45,7 +45,7 @@ export type Athlete = {
 }
 export type UsageMetrics = {
   athletes: number; workouts: number; recommendations: number
-  feedback_count: number; avg_feedback_rating: number
+  feedback_count: number; avg_feedback_rating: number | null
 }
 export type AdminFeedback = {
   id: string; recommendation_id: string; athlete_id: string; rating: number

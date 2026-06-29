@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react'
+import { SWRConfig } from 'swr'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AdminView } from '@/components/admin/AdminView'
 
@@ -6,6 +7,15 @@ afterEach(() => vi.restoreAllMocks())
 
 const json = (b: unknown) =>
   new Response(JSON.stringify(b), { status: 200, headers: { 'Content-Type': 'application/json' } })
+
+// cache SWR fresco por render → sem vazamento de dados entre os testes
+function renderView() {
+  return render(
+    <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0, errorRetryCount: 0 }}>
+      <AdminView />
+    </SWRConfig>,
+  )
+}
 
 describe('AdminView', () => {
   it('mostra métricas, atletas e feedbacks', async () => {
@@ -16,11 +26,17 @@ describe('AdminView', () => {
       if (u.includes('admin/feedback')) return json([{ id: 'f1', recommendation_id: 'r', athlete_id: '1', rating: 5, made_sense: true, observed_result: null, comment: 'top', created_at: '2026-06-29T00:00:00Z' }])
       return json([])
     })
-    render(<AdminView />)
-    await waitFor(() => expect(screen.getByText('100')).toBeInTheDocument()) // treinos
-    expect(screen.getByText('l@x.com')).toBeInTheDocument() // atleta na tabela
-    expect(screen.getAllByText('Leandro').length).toBeGreaterThan(0) // nome resolvido no feedback
-    expect(screen.getByText('top')).toBeInTheDocument() // comentário do feedback
-    expect(screen.getByText('4.2')).toBeInTheDocument() // nota média
+    renderView()
+    await waitFor(() => expect(screen.getByText('100')).toBeInTheDocument())
+    expect(screen.getByText('l@x.com')).toBeInTheDocument()
+    expect(screen.getAllByText('Leandro').length).toBeGreaterThan(0)
+    expect(screen.getByText('top')).toBeInTheDocument()
+    expect(screen.getByText('4.2')).toBeInTheDocument()
+  })
+
+  it('mostra acesso restrito quando a API retorna 403', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('forbidden', { status: 403 }))
+    renderView()
+    await waitFor(() => expect(screen.getByText(/Acesso restrito/)).toBeInTheDocument())
   })
 })
