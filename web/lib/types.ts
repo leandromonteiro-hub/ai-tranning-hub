@@ -1,0 +1,26 @@
+import type { WorkoutStructure } from '@/lib/structure'
+
+export type PlannedWorkout = {
+  id: string; planned_date: string; name: string; workout_type: string
+  planned_duration_s: number | null; planned_tss: number | null
+  description: string | null; structure: WorkoutStructure | null
+  adjustment: Record<string, unknown> | null
+}
+export type CompletedWorkout = {
+  id: string; workout_date: string; name: string | null; workout_type: string
+  duration_s: number | null; distance_m: number | null; tss: number | null
+  intensity_factor: number | null; avg_power: number | null; normalized_power: number | null
+  avg_hr: number | null; kj: number | null; elevation_gain_m: number | null; notes: string | null
+}
+export type RaceMarker = { id: string; name: string; race_date: string; days_until: number }
+export type CalendarDay = { date: string; planned: PlannedWorkout[]; completed: CompletedWorkout[]; races: RaceMarker[] }
+export type WeekSummary = {
+  week_start: string; ctl: number | null; atl: number | null; tsb: number | null
+  total_duration_s: number; total_tss: number; total_distance_m: number; total_elevation_m: number; total_kj: number
+}
+export type CalendarResponse = { days: CalendarDay[]; weeks: WeekSummary[] }
+export type WorkoutStreams = {
+  workout_id: string; n_points: number
+  time_s: Array<number | null>; power: Array<number | null>; heart_rate: Array<number | null>
+  cadence: Array<number | null>; altitude: Array<number | null>
+}
