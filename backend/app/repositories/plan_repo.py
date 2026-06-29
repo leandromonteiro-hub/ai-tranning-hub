@@ -6,6 +6,7 @@ from datetime import date, timedelta
 
 from app.models.enums import BlockType
 from app.models.training_plan import TrainingWeek
+from app.models.workout import WorkoutPlanned
 from app.repositories.base import TenantRepository
 
 
@@ -27,3 +28,19 @@ class TrainingWeekRepository(TenantRepository[TrainingWeek]):
         if week and (d - week.week_start) < timedelta(days=7):
             return week.block_type
         return None
+
+
+class PlannedWorkoutRepository(TenantRepository[WorkoutPlanned]):
+    model = WorkoutPlanned
+
+    async def list_between(
+        self, start: date, end: date, athlete_id: uuid.UUID | None = None
+    ) -> list[WorkoutPlanned]:
+        stmt = (
+            self._base_select(athlete_id)
+            .where(WorkoutPlanned.planned_date >= start)
+            .where(WorkoutPlanned.planned_date <= end)
+            .order_by(WorkoutPlanned.planned_date)
+        )
+        res = await self.session.execute(stmt)
+        return list(res.scalars().all())
