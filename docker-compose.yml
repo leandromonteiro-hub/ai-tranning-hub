@@ -77,5 +77,14 @@ services:
     depends_on:
       - api
 
+  web:
+    build: ./web
+    environment:
+      - API_BASE_URL=http://api:8000/api/v1
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
 volumes:
   pgdata:
