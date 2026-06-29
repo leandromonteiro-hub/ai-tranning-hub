@@ -5,12 +5,9 @@ import { apiFetch } from '@/lib/api'
 import { adjustPreview, adjustmentReason, canAdjust, type AdjustPreview } from '@/lib/dayAdjust'
 import { formatDuration, formatTss } from '@/lib/format'
 import { riskBadge } from '@/lib/recs'
+import { todayIso } from '@/lib/dateUtils'
 import type { PlannedWorkout, Recommendation } from '@/lib/types'
 import { Badge } from '@/components/ui/Badge'
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
-}
 
 const btn =
   'rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50'
@@ -42,7 +39,9 @@ export function DayAdjustPanel({ planned, onChanged }: { planned: PlannedWorkout
         body: JSON.stringify({ recommendation_id: preview.rec.id }),
       })
       if (!res.ok) { setError('Não foi possível aplicar o ajuste.'); return }
-      setPreview(null); onChanged()
+      // não zera o preview: deixa o planned.adjustment (que chega via onChanged)
+      // dirigir a transição para o estado "ajustado" — evita flash do botão Ajustar.
+      onChanged()
     } catch { setError('Não foi possível aplicar o ajuste.') } finally { setBusy(false) }
   }
 

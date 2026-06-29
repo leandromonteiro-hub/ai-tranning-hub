@@ -6,10 +6,7 @@ import { pairDayWorkouts } from '@/lib/pairing'
 import { addMonths, firstOfMonth, latestMonth, monthGridRange, monthLabel } from '@/lib/weekRange'
 import { CalendarGrid } from '@/components/calendar/CalendarGrid'
 import { WorkoutDetailDrawer } from '@/components/workout/WorkoutDetailDrawer'
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
-}
+import { todayIso } from '@/lib/dateUtils'
 
 export function CalendarView() {
   const today = todayIso()
@@ -70,6 +67,7 @@ export function CalendarView() {
 
       {selected && (
         <WorkoutDetailDrawer
+          key={openId ?? ''}
           planned={selected.planned}
           completed={selected.completed}
           onClose={() => setOpenId(null)}

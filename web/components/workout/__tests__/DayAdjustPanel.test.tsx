@@ -26,6 +26,16 @@ describe('DayAdjustPanel', () => {
     expect(screen.getByRole('button', { name: /Reverter ajuste/ })).toBeInTheDocument()
   })
 
+  it('reverter chama DELETE e onChanged', async () => {
+    const onChanged = vi.fn()
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({}))
+    render(<DayAdjustPanel planned={planned({ adjustment: { reason: 'recovery' } })} onChanged={onChanged} />)
+    await userEvent.click(screen.getByRole('button', { name: /Reverter ajuste/ }))
+    await waitFor(() => expect(onChanged).toHaveBeenCalled())
+    const [, init] = spy.mock.calls[0]
+    expect((init as RequestInit).method).toBe('DELETE')
+  })
+
   it('gera preview e aceitar chama onChanged', async () => {
     const onChanged = vi.fn()
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
