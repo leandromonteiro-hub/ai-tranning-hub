@@ -44,7 +44,7 @@ export function WorkoutDetailDrawer({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
-        className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-900"
+        className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl lg:max-w-6xl 2xl:max-w-[90vw] 2xl:w-[90vw] dark:bg-slate-900"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Cabeçalho */}
