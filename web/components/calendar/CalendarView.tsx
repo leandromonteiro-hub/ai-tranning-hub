@@ -21,7 +21,7 @@ export function CalendarView() {
   const month = ref ?? autoMonth ?? firstOfMonth(today)
 
   const [start, end] = monthGridRange(month)
-  const { data, isLoading, error } = useCalendar(start, end)
+  const { data, isLoading, error, mutate } = useCalendar(start, end)
   const [openId, setOpenId] = useState<string | null>(null)
 
   const selected = openId && data
@@ -69,7 +69,12 @@ export function CalendarView() {
       {data && <CalendarGrid days={data.days} weeks={data.weeks} onOpenWorkout={setOpenId} />}
 
       {selected && (
-        <WorkoutDetailDrawer planned={selected.planned} completed={selected.completed} onClose={() => setOpenId(null)} />
+        <WorkoutDetailDrawer
+          planned={selected.planned}
+          completed={selected.completed}
+          onClose={() => setOpenId(null)}
+          onChanged={() => mutate()}
+        />
       )}
     </div>
   )
