@@ -128,7 +128,9 @@ export function ProvasView() {
       </Card>
 
       <Card title="Suas provas">
-        {list.length === 0 ? (
+        {races === undefined ? (
+          <p className="text-sm text-slate-500">Carregando…</p>
+        ) : list.length === 0 ? (
           <p className="text-sm text-slate-500">Nenhuma prova cadastrada ainda.</p>
         ) : (
           <div className="overflow-x-auto">
