@@ -1,4 +1,5 @@
-import { ComingSoon } from "@/components/ComingSoon";
+import { RecomendacoesView } from "@/components/recs/RecomendacoesView";
+
 export default function Page() {
-  return <ComingSoon title="🧠 Recomendações" milestone="M4" />;
+  return <RecomendacoesView />;
 }
