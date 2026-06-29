@@ -105,16 +105,23 @@ function StreamPlot({ streams, ftp }: { streams: WorkoutStreams; ftp: number }) 
       data.push(hrYs)
     }
 
+    const el = ref.current
     const opts: uPlot.Options = {
-      width: ref.current.clientWidth || 600,
+      width: el.clientWidth || 600,
       height: 160,
       scales: { x: { time: false }, y: {}, ...(hasHr ? { hr: {} } : {}) },
       legend: { show: false },
       axes,
       series,
     }
-    const plot = new uPlot(opts, data, ref.current)
-    return () => plot.destroy()
+    const plot = new uPlot(opts, data, el)
+    // Reajusta a largura quando o container/janela muda de tamanho.
+    const ro = new ResizeObserver(() => {
+      const w = el.clientWidth
+      if (w > 0) plot.setSize({ width: w, height: 160 })
+    })
+    ro.observe(el)
+    return () => { ro.disconnect(); plot.destroy() }
   }, [streams, ftp, hasHr])
 
   return (
