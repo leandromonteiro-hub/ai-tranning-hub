@@ -4,7 +4,7 @@ import { formReading } from '@/lib/formState'
 import { feedbackLine, hasStructured, riskBadge, workoutDescription, type RecSignals } from '@/lib/recs'
 import type { Recommendation } from '@/lib/types'
 
-const r = Math.round
+const round = Math.round
 
 export function RiskHeader({ rec }: { rec: Recommendation }) {
   const badge = riskBadge(rec.risk_level)
@@ -31,7 +31,7 @@ export function SignalsPanel({ signals }: { signals: RecSignals }) {
         {([['Fitness (CTL)', form.ctl], ['Fadiga (ATL)', form.atl], ['Forma (TSB)', form.tsb]] as const).map(([k, v]) => (
           <div key={k}>
             <div className="text-[10px] uppercase tracking-wide text-slate-400">{k}</div>
-            <div className="text-lg font-bold text-slate-700 dark:text-slate-100">{v != null ? r(v) : '—'}</div>
+            <div className="text-lg font-bold text-slate-700 dark:text-slate-100">{v != null ? round(v) : '—'}</div>
           </div>
         ))}
       </div>
@@ -40,7 +40,7 @@ export function SignalsPanel({ signals }: { signals: RecSignals }) {
       )}
       <div className="mt-3 grid grid-cols-1 gap-1 text-sm text-slate-600 dark:text-slate-300 sm:grid-cols-2">
         <div><span className="text-slate-400">Bloco atual:</span> <strong>{signals.block || '—'}</strong></div>
-        <div><span className="text-slate-400">FTP usado:</span> <strong>{signals.ftp_watts ? `${r(signals.ftp_watts)} W` : '—'}</strong></div>
+        <div><span className="text-slate-400">FTP usado:</span> <strong>{signals.ftp_watts ? `${round(signals.ftp_watts)} W` : '—'}</strong></div>
       </div>
       {signals.methodology && signals.methodology !== 'n/d' && (
         <p className="mt-2 text-sm text-slate-600 dark:text-slate-300"><span className="text-slate-400">Metodologia (perfil reverso real):</span> {signals.methodology}</p>

@@ -79,7 +79,7 @@ export function RecomendacoesView() {
           <SignalsPanel signals={signalsOf(rec.payload)} />
           <RationalePanel rec={rec} />
           <StructuredWorkout rec={rec} />
-          <FeedbackForm recId={rec.id} />
+          <FeedbackForm key={rec.id} recId={rec.id} />
         </>
       )}
     </div>

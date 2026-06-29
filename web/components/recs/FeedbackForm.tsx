@@ -45,7 +45,7 @@ export function FeedbackForm({ recId }: { recId: string }) {
           <button
             type="button"
             onClick={submit}
-            disabled={status === 'sending'}
+            disabled={status === 'sending' || status === 'ok'}
             className="rounded-lg bg-slate-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
           >
             Enviar feedback
