@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useCalendar, useWorkouts } from '@/lib/hooks'
+import { pairDayWorkouts } from '@/lib/pairing'
 import { addMonths, firstOfMonth, latestMonth, monthGridRange, monthLabel } from '@/lib/weekRange'
 import { CalendarGrid } from '@/components/calendar/CalendarGrid'
 import { WorkoutDetailDrawer } from '@/components/workout/WorkoutDetailDrawer'
@@ -24,13 +25,9 @@ export function CalendarView() {
   const [openId, setOpenId] = useState<string | null>(null)
 
   const selected = openId && data
-    ? data.days.flatMap((d) => [
-        ...d.completed.filter((c) => c.id === openId).map((c) => ({
-          completed: c, planned: d.planned.find((p) => p.workout_type === c.workout_type) ?? null,
-        })),
-        ...d.planned.filter((p) => p.id === openId && !d.completed.some((c) => c.id === openId))
-          .map((p) => ({ completed: null, planned: p })),
-      ])[0] ?? null
+    ? data.days
+        .flatMap((d) => pairDayWorkouts(d.planned, d.completed))
+        .find((pair) => pair.completed?.id === openId || pair.planned?.id === openId) ?? null
     : null
 
   return (
