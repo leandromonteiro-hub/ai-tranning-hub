@@ -23,21 +23,25 @@ export function ImportarView() {
   const [error, setError] = useState<string | null>(null)
   const [profile, setProfile] = useState<ProfileState>('idle')
   const cancelled = useRef(false)
+  // Geração do polling: um novo upload invalida o poller anterior (evita corrida).
+  const pollGen = useRef(0)
 
   useEffect(() => () => { cancelled.current = true }, [])
 
   async function pollProfile(taskId: string) {
+    const gen = ++pollGen.current
+    const alive = () => !cancelled.current && pollGen.current === gen
     setProfile('polling')
     const max = 30
     for (let attempt = 1; attempt <= max; attempt++) {
-      if (cancelled.current) return
+      if (!alive()) return
       let state = 'PENDING'
       try {
         const r = await apiFetch(`jobs/${taskId}`)
         if (r.ok) state = ((await r.json()) as JobStatus).state
       } catch { /* trata como PENDING e segue */ }
       const d = pollDecision(state, attempt, max)
-      if (d !== 'continue') { if (!cancelled.current) setProfile(d); return }
+      if (d !== 'continue') { if (alive()) setProfile(d); return }
       await sleep(1500)
     }
   }
