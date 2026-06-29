@@ -1,4 +1,5 @@
-import { ComingSoon } from "@/components/ComingSoon";
+import { ImportarView } from "@/components/importar/ImportarView";
+
 export default function Page() {
-  return <ComingSoon title="📥 Importar" milestone="M2" />;
+  return <ImportarView />;
 }

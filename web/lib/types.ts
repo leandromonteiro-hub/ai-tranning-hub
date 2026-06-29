@@ -38,6 +38,14 @@ export type LoadMetric = {
   monotony: number | null; strain: number | null
 }
 
+// --- Importar ---
+export type ImportedFile = {
+  id: string; filename: string; file_format: string; status: string
+  rows_imported: number; error_message: string | null; created_at: string
+}
+export type UploadResponse = { files: ImportedFile[]; profile_task_id: string | null }
+export type JobStatus = { task_id: string; state: string }
+
 // --- Recomendações (IA do dia) ---
 export type Evidence = { evidence_type: string; description: string; similarity: number | null }
 export type Recommendation = {
