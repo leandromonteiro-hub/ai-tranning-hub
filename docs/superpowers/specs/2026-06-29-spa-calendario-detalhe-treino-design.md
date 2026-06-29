@@ -1,7 +1,18 @@
 # Design — SPA do Athlete Hub: Calendário + Detalhe do Treino (nível TrainingPeaks)
 
 Data: 2026-06-29
-Status: aprovado (brainstorming) — pronto para virar plano de implementação
+Status: aprovado (brainstorming) — em implementação
+
+> **REVISÃO 2026-06-29 (durante a execução):** descobriu-se que `web/` JÁ continha um
+> esqueleto **Next.js 15** bem-feito (React 19 + Tailwind v4 + SWR + lucide; login com cookie
+> httpOnly, proxy BFF `app/api/proxy/[...path]`, `app/(app)/layout.tsx` server-side com auth,
+> `AppShell`/`Sidebar`, UI kit, `lib/{api,config,session}`), com as 8 páginas como stub
+> `ComingSoon`. Decisão do usuário: **adotar o Next.js existente** em vez do Vite proposto na §3.
+> O scaffold Vite foi revertido. Os endpoints de backend (§5) seguem idênticos e já estão
+> concluídos. As §6–§7 (telas) permanecem válidas como requisitos visuais/funcionais; a
+> implementação do frontend está no plano **`plans/2026-06-29-spa-calendario-detalhe-FRONTEND-nextjs.md`**
+> (Next.js), que reaproveita auth/proxy/shell/UI já prontos. Ganho colateral: token em cookie
+> httpOnly (mais seguro que o Bearer-em-localStorage da §3).
 
 ## 1. Contexto e objetivo
 
