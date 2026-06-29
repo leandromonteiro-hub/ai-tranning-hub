@@ -1,7 +1,7 @@
 "use client";
 import useSWR from 'swr'
 import { jsonFetcher } from '@/lib/api'
-import type { AthleteIntelligence, AthleteProfile, CalendarResponse, CompletedWorkout, LoadMetric, Race, Recommendation, WorkoutStreams } from '@/lib/types'
+import type { AdminFeedback, Athlete, AthleteIntelligence, AthleteProfile, CalendarResponse, CompletedWorkout, LoadMetric, Race, Recommendation, UsageMetrics, WorkoutStreams } from '@/lib/types'
 
 export function useCalendar(start: string, end: string) {
   return useSWR<CalendarResponse>(`calendar?start=${start}&end=${end}`, jsonFetcher as (p: string) => Promise<CalendarResponse>)
@@ -33,4 +33,16 @@ export function useRaces() {
 
 export function useProfile() {
   return useSWR<AthleteProfile | null>('athletes/me/profile', jsonFetcher as (p: string) => Promise<AthleteProfile | null>)
+}
+
+export function useAdminUsage() {
+  return useSWR<UsageMetrics>('admin/usage', jsonFetcher as (p: string) => Promise<UsageMetrics>)
+}
+
+export function useAdminAthletes() {
+  return useSWR<Athlete[]>('admin/athletes', jsonFetcher as (p: string) => Promise<Athlete[]>)
+}
+
+export function useAdminFeedback() {
+  return useSWR<AdminFeedback[]>('admin/feedback', jsonFetcher as (p: string) => Promise<AdminFeedback[]>)
 }
