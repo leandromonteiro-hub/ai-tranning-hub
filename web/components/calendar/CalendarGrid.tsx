@@ -3,6 +3,7 @@ import { Flag } from 'lucide-react'
 import type { CalendarDay, WeekSummary } from '@/lib/types'
 import { SummaryColumn } from '@/components/calendar/SummaryColumn'
 import { WorkoutCard } from '@/components/calendar/WorkoutCard'
+import { pairDayWorkouts } from '@/lib/pairing'
 import { mondayOf, weekDays } from '@/lib/weekRange'
 
 const DOW = ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB', 'DOM']
@@ -37,14 +38,14 @@ export function CalendarGrid({
               <div key={iso} className="min-h-32 min-w-0 space-y-1 rounded bg-slate-100/50 p-1 dark:bg-slate-800/40">
                 <div className="text-[11px] text-slate-400">{Number(iso.slice(8, 10))}</div>
                 {day?.races.map((r) => <RaceFlag key={r.id} name={r.name} daysUntil={r.days_until} />)}
-                {day?.planned.map((p) => (
-                  <WorkoutCard key={p.id} planned={p}
-                    completed={day.completed.find((c) => c.workout_type === p.workout_type) ?? null}
-                    onOpen={onOpenWorkout} />
+                {day && pairDayWorkouts(day.planned, day.completed).map((pair, i) => (
+                  <WorkoutCard
+                    key={pair.completed?.id ?? pair.planned?.id ?? `${iso}-${i}`}
+                    planned={pair.planned}
+                    completed={pair.completed}
+                    onOpen={onOpenWorkout}
+                  />
                 ))}
-                {day?.completed
-                  .filter((c) => !day.planned.some((p) => p.workout_type === c.workout_type))
-                  .map((c) => <WorkoutCard key={c.id} planned={null} completed={c} onOpen={onOpenWorkout} />)}
               </div>
             )
           })}
