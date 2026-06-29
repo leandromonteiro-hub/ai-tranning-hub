@@ -1,4 +1,5 @@
-import { ComingSoon } from "@/components/ComingSoon";
+import { CheckinView } from "@/components/checkin/CheckinView";
+
 export default function Page() {
-  return <ComingSoon title="📝 Check-in diário" milestone="M2" />;
+  return <CheckinView />;
 }
