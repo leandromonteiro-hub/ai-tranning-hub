@@ -4,6 +4,7 @@ import { X } from 'lucide-react'
 import { useWorkoutStreams } from '@/lib/hooks'
 import type { CompletedWorkout, PlannedWorkout } from '@/lib/types'
 import { structureToSegments, structureToSteps } from '@/lib/structure'
+import { DayAdjustPanel } from '@/components/workout/DayAdjustPanel'
 import { IntensityProfile } from '@/components/workout/IntensityProfile'
 import { PlannedCompletedTable } from '@/components/workout/PlannedCompletedTable'
 import { StepsBreakdown } from '@/components/workout/StepsBreakdown'
@@ -24,8 +25,8 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 export function WorkoutDetailDrawer({
-  planned, completed, onClose,
-}: { planned: PlannedWorkout | null; completed: CompletedWorkout | null; onClose: () => void }) {
+  planned, completed, onClose, onChanged,
+}: { planned: PlannedWorkout | null; completed: CompletedWorkout | null; onClose: () => void; onChanged?: () => void }) {
   const { data: streams } = useWorkoutStreams(completed?.id ?? null)
   const ftp = planned?.structure?.ftp_watts ?? 250
   const segments = structureToSegments(planned?.structure ?? null, ftp)
@@ -67,11 +68,7 @@ export function WorkoutDetailDrawer({
 
         {/* Corpo rolável */}
         <div className="space-y-5 overflow-y-auto px-6 py-5">
-          {planned?.adjustment && (
-            <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm text-violet-800 dark:border-violet-500/40 dark:bg-violet-500/10 dark:text-violet-300">
-              🤖 Treino ajustado pela IA. Valores efetivos refletem o ajuste do dia.
-            </div>
-          )}
+          {planned && <DayAdjustPanel planned={planned} onChanged={onChanged ?? (() => {})} />}
 
           {/* Gráfico em largura total */}
           <div className="rounded-xl border border-slate-100 p-3 dark:border-slate-800">
