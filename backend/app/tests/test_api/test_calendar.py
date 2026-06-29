@@ -162,6 +162,8 @@ async def test_calendar_is_tenant_isolated(client, auth_headers, session, athlet
     session.add(WorkoutCompleted(athlete_id=other, started_at=datetime(2026, 5, 12, 6, tzinfo=timezone.utc),
                                  workout_date=date(2026, 5, 12), name="de outro",
                                  workout_type=WorkoutType.ENDURANCE, tss=50))
+    session.add(Race(athlete_id=other, name="Prova de outro", race_date=date(2026, 5, 20)))
     await session.commit()
     r = await client.get("/api/v1/calendar?start=2026-05-11&end=2026-05-17", headers=auth_headers)
     assert all(not d["completed"] for d in r.json()["days"])  # não vê treino de outro tenant
+    assert all(not d["races"] for d in r.json()["days"])  # não vê prova de outro tenant
