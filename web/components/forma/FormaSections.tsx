@@ -100,7 +100,7 @@ export function BlocksList({ blocks }: { blocks: Block[] }) {
       {recent.map((b, i) => {
         const bt = (b.block_type ?? '').toLowerCase()
         return (
-          <div key={i} className="flex items-baseline gap-2 text-xs">
+          <div key={`${bt}-${b.start ?? i}`} className="flex items-baseline gap-2 text-xs">
             <span className="shrink-0 rounded px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-white" style={{ background: BLOCK_COLORS[bt] ?? '#8a93a3' }}>
               {(b.block_type ?? '').toUpperCase()}
             </span>

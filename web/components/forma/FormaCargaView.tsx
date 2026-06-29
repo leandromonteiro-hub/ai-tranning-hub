@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { useIntelligence, useLoadSeries } from '@/lib/hooks'
-import { powerCurve, type TwinSeed } from '@/lib/formState'
+import { currentFtp, ftpByPeriod, powerCurve, type TwinSeed } from '@/lib/formState'
 import { Card } from '@/components/ui/Card'
 import { PmcChart } from '@/components/forma/PmcChart'
 import {
@@ -22,12 +22,17 @@ export function FormaCargaView() {
   const end = new Date().toISOString().slice(0, 10)
   const { data: load, mutate: mutateLoad } = useLoadSeries(start, end)
   const [recomputing, setRecomputing] = useState(false)
+  const [recomputeError, setRecomputeError] = useState(false)
 
   async function recompute() {
     setRecomputing(true)
+    setRecomputeError(false)
     try {
-      await apiFetch('metrics/load/recompute', { method: 'POST' })
+      const res = await apiFetch('metrics/load/recompute', { method: 'POST' })
+      if (!res.ok) { setRecomputeError(true); return }
       await Promise.all([mutateLoad(), mutateIntel()])
+    } catch {
+      setRecomputeError(true)
     } finally {
       setRecomputing(false)
     }
@@ -36,7 +41,7 @@ export function FormaCargaView() {
   if (isLoading) return <p className="text-sm text-slate-500">Carregando…</p>
   if (error || !intel) return <p className="text-sm text-red-600">Erro ao carregar a inteligência.</p>
 
-  const twin = (intel.twin_seed ?? null) as TwinSeed | null
+  const twin = intel.twin_seed as TwinSeed | null
   const bests = powerCurve(twin)
   const split = twin?.intensity_split
   const blocks = twin?.block_summary ?? []
@@ -62,13 +67,16 @@ export function FormaCargaView() {
           </button>
         }
       >
+        {recomputeError && (
+          <p className="mb-2 text-xs text-red-600">Não foi possível recalcular agora. Tente de novo.</p>
+        )}
         <PmcChart series={load ?? []} />
       </Card>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         {intel.ftp_history.length > 0 && (
-          <Card title={`⚡ FTP · atual ${Math.round(intel.ftp_history[intel.ftp_history.length - 1].ftp_watts)} W`}>
-            <FtpBars ftps={intel.ftp_history} />
+          <Card title={`⚡ FTP · atual ${Math.round(currentFtp(intel.ftp_history) ?? 0)} W`}>
+            <FtpBars ftps={ftpByPeriod(intel.ftp_history)} />
           </Card>
         )}
         {bests && (
