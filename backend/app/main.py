@@ -9,6 +9,7 @@ from app.api.routes import (
     admin,
     athletes,
     auth,
+    calendar,
     feedback,
     imports,
     jobs,
@@ -67,5 +68,5 @@ async def root() -> dict:
 
 _p = settings.api_prefix
 for r in (auth, athletes, workouts, metrics, imports, races, plans,
-          recommendations, feedback, admin, jobs):
+          recommendations, feedback, admin, jobs, calendar):
     app.include_router(r.router, prefix=_p)
