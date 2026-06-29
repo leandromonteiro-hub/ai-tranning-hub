@@ -43,11 +43,13 @@ export function AdminView() {
         <Metric label="Treinos" value={u?.workouts ?? '—'} />
         <Metric label="Recomendações" value={u?.recommendations ?? '—'} />
         <Metric label="Feedbacks" value={u?.feedback_count ?? '—'} />
-        <Metric label="Nota média" value={u ? u.avg_feedback_rating.toFixed(1) : '—'} />
+        <Metric label="Nota média" value={u?.avg_feedback_rating != null ? u.avg_feedback_rating.toFixed(1) : '—'} />
       </div>
 
       <Card title="👥 Atletas">
-        {(athletes.data?.length ?? 0) === 0 ? (
+        {athletes.isLoading ? (
+          <p className="text-sm text-slate-500">Carregando…</p>
+        ) : (athletes.data?.length ?? 0) === 0 ? (
           <p className="text-sm text-slate-500">Nenhum atleta.</p>
         ) : (
           <div className="overflow-x-auto">
@@ -68,7 +70,9 @@ export function AdminView() {
       </Card>
 
       <Card title="💬 Feedbacks">
-        {(feedback.data?.length ?? 0) === 0 ? (
+        {feedback.isLoading ? (
+          <p className="text-sm text-slate-500">Carregando…</p>
+        ) : (feedback.data?.length ?? 0) === 0 ? (
           <p className="text-sm text-slate-500">Nenhum feedback ainda.</p>
         ) : (
           <div className="overflow-x-auto">
