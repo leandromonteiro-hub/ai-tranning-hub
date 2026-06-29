@@ -1,6 +1,6 @@
 import uuid
 import pytest
-from datetime import date
+from datetime import date, datetime, timezone
 
 from app.core.tenant import TenantContext
 from app.models.ai import AiRecommendation, AiRecommendationFeedback
@@ -13,7 +13,7 @@ def _ctx(aid):
     return TenantContext(athlete_id=aid, tenant_id="t", role=Role.ATHLETE)
 
 
-async def _seed_feedback(session, aid, *, rating, made_sense, comment, workout_type):
+async def _seed_feedback(session, aid, *, rating, made_sense, comment, workout_type, deleted=False):
     rec = AiRecommendation(
         athlete_id=aid, target_date=date(2026, 6, 20), kind="daily_workout",
         summary="s", risk_level=RiskLevel.LOW, decision=RecommendationDecision.PENDING,
@@ -24,6 +24,7 @@ async def _seed_feedback(session, aid, *, rating, made_sense, comment, workout_t
     session.add(AiRecommendationFeedback(
         athlete_id=aid, recommendation_id=rec.id, rating=rating,
         made_sense=made_sense, comment=comment,
+        deleted_at=datetime.now(timezone.utc) if deleted else None,
     ))
     await session.flush()
 
@@ -64,6 +65,12 @@ def test_summarize_respects_comment_limit_most_recent_first():
     text, _ = summarize(_items(), comment_limit=1, as_of=_AS_OF)
     assert "perfeito" in text          # mais recente
     assert "muito puxado" not in text  # cortado pelo limite
+
+
+def test_summarize_comment_limit_zero_yields_no_comments():
+    text, _ = summarize(_items(), comment_limit=0, as_of=_AS_OF)
+    assert "perfeito" not in text          # nenhum comentário deve passar
+    assert "Comentários:" not in text
 
 
 def test_summarize_empty_is_nd():
@@ -116,6 +123,18 @@ async def test_feedback_summary_reads_and_aggregates(session):
 async def test_feedback_summary_empty_is_nd(session):
     aid = uuid.uuid4()
     assert await feedback_summary(session, _ctx(aid), aid) == ("n/d", {})
+
+
+@pytest.mark.asyncio
+async def test_feedback_summary_excludes_soft_deleted(session):
+    aid = uuid.uuid4()
+    await _seed_feedback(session, aid, rating=5, made_sense=True, comment="vivo", workout_type="ENDURANCE")
+    await _seed_feedback(session, aid, rating=1, made_sense=False, comment="apagado",
+                         workout_type="VO2MAX", deleted=True)
+    text, stats = await feedback_summary(session, _ctx(aid), aid)
+    assert stats["count"] == 1               # só o feedback ativo conta
+    assert "vivo" in text
+    assert "apagado" not in text
 
 
 @pytest.mark.asyncio

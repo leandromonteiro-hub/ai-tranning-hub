@@ -26,31 +26,6 @@ class IngestionSummary(BaseModel):
     anomalies: list[str] = Field(default_factory=list)
 
 
-class RichnessSummary(BaseModel):
-    """Subset of RichnessIndex used in the onboarding response."""
-
-    years_covered: float = 0.0
-    n_workouts: int = 0
-    pct_power: float = 0.0
-    pct_hr: float = 0.0
-    pct_hrv: float = 0.0
-    pct_sleep: float = 0.0
-    score: float = 0.0
-    label: str = "baixa"
-
-
-class ProfileSummary(BaseModel):
-    """Compact profile summary from generate_and_persist_profile (report_md excluded)."""
-
-    n_workouts: int = 0
-    weeks: int = 0
-    ftp_recent: float | None = None
-    n_blocks: int = 0
-    n_races: int = 0
-    excluded_power_streams: int = 0
-    richness: dict[str, Any] = Field(default_factory=dict)
-
-
 class TrainingPeaksOnboardingResponse(BaseModel):
     """Response schema for POST /imports/trainingpeaks-export.
 

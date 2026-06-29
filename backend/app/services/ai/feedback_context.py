@@ -69,10 +69,10 @@ def summarize(items: list[FeedbackItem], comment_limit: int = _DEFAULT_COMMENT_L
 
     comments: list[str] = []
     for i in items:
-        if i.comment and i.comment.strip():
-            comments.append(f"[{i.when.isoformat()} · {i.workout_type or '—'}] {i.comment.strip()}")
         if len(comments) >= comment_limit:
             break
+        if i.comment and i.comment.strip():
+            comments.append(f"[{i.when.isoformat()} · {i.workout_type or '—'}] {i.comment.strip()}")
 
     stats = {**overall, "by_workout_type": by_workout_type,
              "weighted": True, "half_life_days": _HALF_LIFE_DAYS}
