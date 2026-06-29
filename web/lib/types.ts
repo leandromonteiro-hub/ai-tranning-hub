@@ -24,3 +24,16 @@ export type WorkoutStreams = {
   time_s: Array<number | null>; power: Array<number | null>; heart_rate: Array<number | null>
   cadence: Array<number | null>; altitude: Array<number | null>
 }
+
+// --- Forma & Carga (inteligência + PMC) ---
+export type FtpPoint = { ftp_watts: number; valid_from: string; valid_to: string | null; method: string | null }
+export type FormState = { metric_date: string; ctl: number; atl: number; tsb: number }
+export type AthleteIntelligence = {
+  twin_seed: Record<string, unknown> | null
+  ftp_history: FtpPoint[]
+  form: FormState | null
+}
+export type LoadMetric = {
+  metric_date: string; daily_tss: number; ctl: number; atl: number; tsb: number
+  monotony: number | null; strain: number | null
+}

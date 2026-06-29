@@ -1,4 +1,5 @@
-import { ComingSoon } from "@/components/ComingSoon";
+import { FormaCargaView } from "@/components/forma/FormaCargaView";
+
 export default function Page() {
-  return <ComingSoon title="📈 Forma & Carga" milestone="M2" />;
+  return <FormaCargaView />;
 }
