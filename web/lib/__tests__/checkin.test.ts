@@ -15,6 +15,11 @@ describe('recoveryBody', () => {
   it('hrv informado é mantido', () => {
     expect(recoveryBody({ ...base, hrv_ms: '62' }, '2026-06-29').hrv_ms).toBe(62)
   })
+  it('sleep_hours e resting_hr vazios → null', () => {
+    expect(recoveryBody({ ...base, sleep_hours: '', resting_hr: '' }, '2026-06-29')).toMatchObject({
+      sleep_hours: null, resting_hr: null,
+    })
+  })
 })
 
 describe('subjectiveBody', () => {

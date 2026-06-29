@@ -35,7 +35,7 @@ export function CheckinView() {
     mood: 4, motivation: 4, injury_flag: false, comment: '',
   })
   const [saving, setSaving] = useState(false)
-  const [status, setStatus] = useState<'idle' | 'ok' | 'error'>('idle')
+  const [status, setStatus] = useState<'idle' | 'ok' | 'error' | 'invalid'>('idle')
 
   function upd<K extends keyof CheckinForm>(key: K, value: CheckinForm[K]) {
     setForm((f) => ({ ...f, [key]: value }))
@@ -43,6 +43,7 @@ export function CheckinView() {
   }
 
   async function submit() {
+    if (!form.sleep_hours.trim() || !form.resting_hr.trim()) { setStatus('invalid'); return }
     setSaving(true)
     setStatus('idle')
     try {
@@ -95,6 +96,7 @@ export function CheckinView() {
               {saving ? 'Registrando…' : 'Registrar check-in'}
             </button>
             {status === 'ok' && <span className="text-sm text-emerald-600">Check-in registrado. A próxima recomendação considerará seu estado de hoje.</span>}
+            {status === 'invalid' && <span className="text-sm text-red-600">Informe horas de sono e FC repouso.</span>}
             {status === 'error' && <span className="text-sm text-red-600">Não foi possível registrar. Tente de novo.</span>}
           </div>
         </div>
