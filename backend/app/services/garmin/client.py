@@ -4,7 +4,7 @@ so the whole system is testable offline with FakeGarminClient."""
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from app.services.garmin.types import (
     ActivityRef,
@@ -13,6 +13,10 @@ from app.services.garmin.types import (
     NeedsMfa,
     WellnessSnapshot,
 )
+from app.services.workout.model import Repeat, StructuredWorkout
+
+if TYPE_CHECKING:
+    pass
 
 
 class GarminAuthError(RuntimeError):
@@ -30,9 +34,111 @@ class GarminClient(Protocol):
     def list_activities(self, since: date) -> list[ActivityRef]: ...
     def download_activity_fit(self, activity_id: str) -> bytes: ...
     def get_wellness(self, day: date) -> WellnessSnapshot: ...
-    def push_workout(self, structured_workout: dict, schedule_date: date) -> str: ...
+    def push_workout(self, structured_workout: StructuredWorkout, schedule_date: date) -> str: ...
     def unschedule_workout(self, garmin_workout_id: str) -> None: ...
     def current_token(self) -> dict | None: ...
+
+
+def _build_garmin_workout_dict(sw: StructuredWorkout) -> dict:
+    """Build a Garmin workout dict using garminconnect typed builders.
+
+    Produces the correct Garmin API shape with numeric *Id fields that the
+    old hand-built translator was missing (sportTypeId, stepTypeId,
+    conditionTypeId, workoutTargetTypeId).  All garminconnect imports are
+    lazy so this module remains importable without the lib installed.
+    """
+    from garminconnect.workout import (  # lazy — garminconnect only in client code
+        CyclingWorkout,
+        TargetType,
+        WorkoutSegment,
+        create_cooldown_step,
+        create_interval_step,
+        create_recovery_step,
+        create_repeat_group,
+        create_warmup_step,
+    )
+
+    ftp = sw.ftp_watts
+    _counter = [1]  # mutable cell for global step_order
+
+    def _next_order() -> int:
+        o = _counter[0]
+        _counter[0] += 1
+        return o
+
+    def _target_type_and_watts(target):
+        """Return (target_type_dict, low_w, high_w). low_w/high_w are None for open targets."""
+        if target.type != "power_pct_ftp" or target.low is None or ftp is None:
+            return (
+                {
+                    "workoutTargetTypeId": TargetType.NO_TARGET,
+                    "workoutTargetTypeKey": "no.target",
+                    "displayOrder": 1,
+                },
+                None,
+                None,
+            )
+        high = target.high if target.high is not None else target.low
+        low_w = round(target.low * ftp)
+        high_w = round(high * ftp)
+        return (
+            {
+                "workoutTargetTypeId": TargetType.POWER_ZONE,
+                "workoutTargetTypeKey": "power.zone",
+                "displayOrder": 1,
+            },
+            low_w,
+            high_w,
+        )
+
+    def _make_step(step):
+        order = _next_order()
+        ttype, low_w, high_w = _target_type_and_watts(step.target)
+        intensity = step.intensity
+        if intensity == "warmup":
+            s = create_warmup_step(step.duration_s, order, ttype)
+        elif intensity == "active":
+            s = create_interval_step(step.duration_s, order, ttype)
+        elif intensity == "rest":
+            s = create_recovery_step(step.duration_s, order, ttype)
+        else:  # cooldown
+            s = create_cooldown_step(step.duration_s, order, ttype)
+        # ExecutableStep has extra="allow" — power values attach as extra fields
+        if low_w is not None:
+            s.targetValueOne = low_w
+            s.targetValueTwo = high_w
+        return s
+
+    # Compute total duration accounting for repeat multipliers
+    total_duration = 0
+    for el in sw.elements:
+        if isinstance(el, Repeat):
+            total_duration += el.count * sum(ch.duration_s for ch in el.steps)
+        else:
+            total_duration += el.duration_s
+
+    # Build top-level steps (children of a Repeat get orders before the group)
+    top_steps = []
+    for el in sw.elements:
+        if isinstance(el, Repeat):
+            children = [_make_step(ch) for ch in el.steps]
+            rg = create_repeat_group(el.count, children, _next_order())
+            top_steps.append(rg)
+        else:
+            top_steps.append(_make_step(el))
+
+    workout = CyclingWorkout(
+        workoutName=sw.name,
+        estimatedDurationInSecs=total_duration,
+        workoutSegments=[
+            WorkoutSegment(
+                segmentOrder=1,
+                sportType={"sportTypeId": 2, "sportTypeKey": "cycling", "displayOrder": 2},
+                workoutSteps=top_steps,
+            )
+        ],
+    )
+    return workout.to_dict()
 
 
 # --- Concrete adapter (the ONLY garminconnect import in the codebase) --------
@@ -98,7 +204,7 @@ class RealGarminClient:
             self._api = Garmin()
             self._api.client.loads(token["tokenstore"])
             # No explicit refresh in 0.3.6 — validate with a cheap authed call so an
-            # expired/invalid token surfaces now as GarminAuthError (→ needs_reauth).
+            # expired/invalid token surfaces now as GarminAuthError (-> needs_reauth).
             self._api.get_full_name()
         except Exception as exc:  # noqa: BLE001 — any restore/validate failure => reauth
             raise GarminAuthError(f"token restore failed: {exc}") from exc
@@ -164,9 +270,10 @@ class RealGarminClient:
             body_battery=bb_charged,
         )
 
-    def push_workout(self, structured_workout: dict, schedule_date: date) -> str:
+    def push_workout(self, structured_workout: StructuredWorkout, schedule_date: date) -> str:
         try:
-            created = self._api.upload_workout(structured_workout)
+            workout_dict = _build_garmin_workout_dict(structured_workout)
+            created = self._api.upload_workout(workout_dict)
             workout_id = created.get("workoutId")
             scheduled = self._api.schedule_workout(workout_id, schedule_date.isoformat())
             # The scheduled-workout id (needed to unschedule) lives in the schedule

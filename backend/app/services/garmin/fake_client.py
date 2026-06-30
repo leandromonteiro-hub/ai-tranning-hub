@@ -11,6 +11,7 @@ from app.services.garmin.types import (
     NeedsMfa,
     WellnessSnapshot,
 )
+from app.services.workout.model import StructuredWorkout
 
 
 class FakeGarminClient:
@@ -35,7 +36,7 @@ class FakeGarminClient:
         self._raise_auth_on_push = raise_auth_on_push
         self._raise_sync_on_first_download = raise_sync_on_first_download
         self._token: dict | None = None
-        self.pushed: list[tuple[dict, date]] = []
+        self.pushed: list[tuple[StructuredWorkout, date]] = []
         self.unscheduled: list[str] = []
         self._workout_seq = 0
         self.list_since: date | None = None
@@ -73,7 +74,7 @@ class FakeGarminClient:
             raise GarminAuthError("wellness auth failed")
         return self._wellness.get(day, WellnessSnapshot(day=day))
 
-    def push_workout(self, structured_workout: dict, schedule_date: date) -> str:
+    def push_workout(self, structured_workout: StructuredWorkout, schedule_date: date) -> str:
         if self._raise_auth_on_push:
             raise GarminAuthError("push auth failed")
         self._workout_seq += 1
