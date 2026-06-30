@@ -18,7 +18,9 @@ from app.repositories.garmin_repo import GarminConnectionRepository
 from app.repositories.metrics_repo import RecoveryRepository
 from app.services.garmin import token_store
 from app.services.garmin.client import GarminAuthError, GarminClient
+from app.services.garmin.workout_translator import to_garmin_workout
 from app.services.ingestion.ingestion_service import import_file
+from app.services.workout.model import StructuredWorkout
 
 log = get_logger(__name__)
 
@@ -113,3 +115,31 @@ async def sync_pull(
     await session.flush()
 
     return PullResult(imported, duplicates, wellness_days)
+
+
+async def _resume_or_reauth(session, ctx, client, athlete_id):
+    conn_repo = GarminConnectionRepository(session, ctx)
+    conn = await conn_repo.get_or_create(athlete_id)
+    try:
+        token = token_store.decrypt(conn.encrypted_token) if conn.encrypted_token else {}
+        client.resume(token)
+    except GarminAuthError as exc:
+        await _mark_reauth(conn_repo, conn, str(exc))
+        raise
+    return conn, conn_repo
+
+
+async def sync_push(session, ctx, client, athlete_id, sw: StructuredWorkout,
+                    schedule_date) -> str:
+    conn, conn_repo = await _resume_or_reauth(session, ctx, client, athlete_id)
+    payload = to_garmin_workout(sw)
+    wid = client.push_workout(payload, schedule_date)
+    new_token = client.current_token()
+    if new_token and token_store.is_enabled():
+        conn.encrypted_token = token_store.encrypt(new_token)
+    await session.flush()
+    return wid
+
+
+async def sync_unpush(session, ctx, client, garmin_workout_id: str) -> None:
+    client.unschedule_workout(garmin_workout_id)
