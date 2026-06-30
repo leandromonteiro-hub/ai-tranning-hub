@@ -152,10 +152,19 @@ Tudo offline — `garminconnect` só é tocado em `client.py`, então `FakeGarmi
 
 ## 7. Verificação manual (gate do piloto, fora de código)
 
+**Nomes de método da `garminconnect` 0.3.6 já verificados por introspecção (2026-06-30)** —
+`login(return_on_mfa=True)`, `resume_login`, `get_activities_by_date`, `download_activity`,
+`get_hrv_data/get_sleep_data/get_rhr_day/get_body_battery`, `upload_workout`,
+`schedule_workout`, `unschedule_workout`, e o token via `garmin.client.dumps()/loads()`
+(não há `garth`). O `RealGarminClient` foi corrigido pra essa API real. **Resta validar contra
+uma conta real apenas os SHAPES de response body** (a chave do scheduled-workout id no retorno
+de `schedule_workout`; os campos de wellness) — listados na `VERIFICATION NOTE` em `client.py`.
+
+Checklist do piloto:
 1. Onboarding real de 1 atleta com MFA → token persiste cifrado.
 2. Pull traz atividade real + wellness do dia; rodar de novo não duplica.
 3. Push de um treino planejado aparece agendado no calendário do Garmin do atleta.
-4. Reverter um treino remove o agendamento.
+4. Reverter um treino remove o agendamento (confirmar a chave do scheduled-id).
 5. Forçar expiração/401 → `status=needs_reauth` e UI pede reconexão.
 
 ## 8. Fora de escopo (YAGNI / fases futuras)
