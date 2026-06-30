@@ -71,23 +71,23 @@ class RealGarminClient:
         return Connected(token=self._dump_token())
 
     def resume_mfa(self, client_state: dict, mfa_code: str) -> dict:
-        from garminconnect import GarminConnectAuthenticationError
+        from garminconnect import Garmin, GarminConnectAuthenticationError
 
-        if self._api is None:
-            from garminconnect import Garmin
-
-            self._api = Garmin(return_on_mfa=True)
         try:
+            if self._api is None:
+                self._api = Garmin(return_on_mfa=True)
             self._api.resume_login(client_state, mfa_code)
         except GarminConnectAuthenticationError as exc:
             raise GarminAuthError(str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 — never leak a raw lib exception
+            raise GarminAuthError(f"resume_mfa failed: {exc}") from exc
         return self._dump_token()
 
     def resume(self, token: dict) -> None:
         from garminconnect import Garmin
 
-        self._api = Garmin()
         try:
+            self._api = Garmin()
             self._api.garth.loads(token)  # restore serialized garth session
             self._api.garth.refresh_oauth2()  # force-refresh; raises if invalid
         except Exception as exc:  # noqa: BLE001 — any restore failure => reauth
