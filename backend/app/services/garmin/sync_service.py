@@ -130,10 +130,14 @@ async def _resume_or_reauth(session, ctx, client, athlete_id):
 
 
 async def sync_push(session, ctx, client, athlete_id, sw: StructuredWorkout,
-                    schedule_date) -> str:
+                    schedule_date: date) -> str:
     conn, conn_repo = await _resume_or_reauth(session, ctx, client, athlete_id)
     payload = to_garmin_workout(sw)
-    wid = client.push_workout(payload, schedule_date)
+    try:
+        wid = client.push_workout(payload, schedule_date)
+    except GarminAuthError as exc:
+        await _mark_reauth(conn_repo, conn, str(exc))
+        raise
     new_token = client.current_token()
     if new_token and token_store.is_enabled():
         conn.encrypted_token = token_store.encrypt(new_token)
