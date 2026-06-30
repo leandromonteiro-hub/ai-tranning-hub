@@ -42,6 +42,7 @@ from datetime import datetime, timezone  # noqa: E402
 from app.services.garmin.types import (  # noqa: E402
     ActivityRef,
     Connected,
+    LoginResult,
     NeedsMfa,
     WellnessSnapshot,
 )
@@ -54,15 +55,17 @@ class RealGarminClient:
     def __init__(self) -> None:
         self._api = None  # garminconnect.Garmin instance, set on login/resume
 
-    def login(self, email: str, password: str):
+    def login(self, email: str, password: str) -> LoginResult:
         from garminconnect import Garmin
         from garminconnect import GarminConnectAuthenticationError
 
-        self._api = Garmin(email=email, password=password, return_on_mfa=True)
         try:
+            self._api = Garmin(email=email, password=password, return_on_mfa=True)
             result1, client_state = self._api.login()
         except GarminConnectAuthenticationError as exc:
             raise GarminAuthError(str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 — never leak a raw lib exception
+            raise GarminSyncError(f"login failed: {exc}") from exc
         if result1 == "needs_mfa":
             return NeedsMfa(client_state=client_state)
         return Connected(token=self._dump_token())
@@ -82,7 +85,6 @@ class RealGarminClient:
 
     def resume(self, token: dict) -> None:
         from garminconnect import Garmin
-        from garminconnect import GarminConnectAuthenticationError
 
         self._api = Garmin()
         try:
@@ -97,7 +99,7 @@ class RealGarminClient:
     def current_token(self) -> dict | None:
         return self._dump_token() if self._api else None
 
-    def list_activities(self, since):
+    def list_activities(self, since: date) -> list[ActivityRef]:
         try:
             raw = self._api.get_activities_by_date(since.isoformat(),
                                                    datetime.now(timezone.utc).date().isoformat())
@@ -122,7 +124,7 @@ class RealGarminClient:
         except Exception as exc:  # noqa: BLE001
             raise GarminSyncError(f"download failed: {exc}") from exc
 
-    def get_wellness(self, day) -> WellnessSnapshot:
+    def get_wellness(self, day: date) -> WellnessSnapshot:
         iso = day.isoformat()
         try:
             hrv = self._api.get_hrv_data(iso) or {}
@@ -149,7 +151,7 @@ class RealGarminClient:
             body_battery=bb_charged,
         )
 
-    def push_workout(self, structured_workout: dict, schedule_date) -> str:
+    def push_workout(self, structured_workout: dict, schedule_date: date) -> str:
         try:
             created = self._api.upload_workout(structured_workout)
             workout_id = str(created.get("workoutId"))
