@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logging import get_logger
 from app.core.tenant import TenantContext
 from app.models.enums import GarminConnectionStatus
+from app.models.garmin import GarminConnection
 from app.models.metrics import RecoveryMetric
 from app.repositories.garmin_repo import GarminConnectionRepository
 from app.repositories.metrics_repo import RecoveryRepository
@@ -31,7 +32,7 @@ class PullResult:
     wellness_days: int
 
 
-async def _mark_reauth(repo, conn, message: str) -> None:
+async def _mark_reauth(repo: GarminConnectionRepository, conn: GarminConnection, message: str) -> None:
     conn.status = GarminConnectionStatus.NEEDS_REAUTH
     conn.last_error = message[:512]
     await repo.session.flush()
@@ -53,9 +54,6 @@ async def sync_pull(
     conn_repo = GarminConnectionRepository(session, ctx)
     conn = await conn_repo.get_or_create(athlete_id)
     rec_repo = RecoveryRepository(session, ctx)
-
-    if not conn.encrypted_token and conn.status is not GarminConnectionStatus.DISCONNECTED:
-        pass  # tests may not set a token; resume() drives auth
 
     try:
         token = token_store.decrypt(conn.encrypted_token) if conn.encrypted_token else {}
@@ -85,22 +83,26 @@ async def sync_pull(
     wellness_days = 0
     day = since
     today = datetime.now(timezone.utc).date()
-    while day <= today:
-        snap = client.get_wellness(day)
-        if any([snap.hrv_ms, snap.resting_hr, snap.sleep_hours,
-                snap.sleep_score, snap.body_battery]):
-            existing = await rec_repo.get_for_date(day, athlete_id)
-            if existing is None:
-                existing = RecoveryMetric(athlete_id=athlete_id, metric_date=day)
-                await rec_repo.add(existing)
-            existing.hrv_ms = snap.hrv_ms
-            existing.resting_hr = snap.resting_hr
-            existing.sleep_hours = snap.sleep_hours
-            existing.sleep_score = snap.sleep_score
-            existing.recovery_score = snap.body_battery
-            existing.source = "garmin"
-            wellness_days += 1
-        day += timedelta(days=1)
+    try:
+        while day <= today:
+            snap = client.get_wellness(day)
+            if any((snap.hrv_ms, snap.resting_hr, snap.sleep_hours,
+                    snap.sleep_score, snap.body_battery)):
+                existing = await rec_repo.get_for_date(day, athlete_id)
+                if existing is None:
+                    existing = RecoveryMetric(athlete_id=athlete_id, metric_date=day)
+                    await rec_repo.add(existing)
+                existing.hrv_ms = snap.hrv_ms
+                existing.resting_hr = snap.resting_hr
+                existing.sleep_hours = snap.sleep_hours
+                existing.sleep_score = snap.sleep_score
+                existing.recovery_score = snap.body_battery
+                existing.source = "garmin"
+                wellness_days += 1
+            day += timedelta(days=1)
+    except GarminAuthError as exc:
+        await _mark_reauth(conn_repo, conn, str(exc))
+        raise
 
     new_token = client.current_token()
     if new_token and token_store.is_enabled():
