@@ -80,6 +80,13 @@ class RecoveryRepository(TenantRepository[RecoveryMetric]):
         res = await self.session.execute(stmt)
         return list(res.scalars().all())
 
+    async def get_for_date(
+        self, d: date, athlete_id: uuid.UUID | None = None
+    ) -> RecoveryMetric | None:
+        stmt = self._base_select(athlete_id).where(RecoveryMetric.metric_date == d)
+        res = await self.session.execute(stmt)
+        return res.scalar_one_or_none()
+
 
 class SubjectiveRepository(TenantRepository[SubjectiveMetric]):
     model = SubjectiveMetric

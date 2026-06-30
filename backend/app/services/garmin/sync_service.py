@@ -1,0 +1,113 @@
+"""Orchestrates Garmin pull/push. Receives the GarminClient by injection so the
+whole flow is testable offline. Reuses ingestion_service for activities and
+RecoveryMetric for wellness."""
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.logging import get_logger
+from app.core.tenant import TenantContext
+from app.models.enums import GarminConnectionStatus
+from app.models.metrics import RecoveryMetric
+from app.repositories.garmin_repo import GarminConnectionRepository
+from app.repositories.metrics_repo import RecoveryRepository
+from app.services.garmin import token_store
+from app.services.garmin.client import GarminAuthError, GarminClient
+from app.services.ingestion.ingestion_service import import_file
+
+log = get_logger(__name__)
+
+_PULL_MARGIN_DAYS = 2
+
+
+@dataclass
+class PullResult:
+    activities_imported: int
+    duplicates: int
+    wellness_days: int
+
+
+async def _mark_reauth(repo, conn, message: str) -> None:
+    conn.status = GarminConnectionStatus.NEEDS_REAUTH
+    conn.last_error = message[:512]
+    await repo.session.flush()
+
+
+def _since(conn) -> date:
+    base = conn.last_sync_at.date() if conn.last_sync_at else date(2020, 1, 1)
+    return base - timedelta(days=_PULL_MARGIN_DAYS)
+
+
+async def sync_pull(
+    session: AsyncSession,
+    ctx: TenantContext,
+    client: GarminClient,
+    athlete_id: uuid.UUID,
+    *,
+    _activity_ext: str = "fit",
+) -> PullResult:
+    conn_repo = GarminConnectionRepository(session, ctx)
+    conn = await conn_repo.get_or_create(athlete_id)
+    rec_repo = RecoveryRepository(session, ctx)
+
+    if not conn.encrypted_token and conn.status is not GarminConnectionStatus.DISCONNECTED:
+        pass  # tests may not set a token; resume() drives auth
+
+    try:
+        token = token_store.decrypt(conn.encrypted_token) if conn.encrypted_token else {}
+        client.resume(token)
+    except GarminAuthError as exc:
+        await _mark_reauth(conn_repo, conn, str(exc))
+        raise
+
+    since = _since(conn)
+
+    imported = 0
+    duplicates = 0
+    try:
+        for ref in client.list_activities(since):
+            data = client.download_activity_fit(ref.activity_id)
+            result = await import_file(
+                session, ctx, athlete_id,
+                filename=f"{ref.activity_id}.{_activity_ext}",
+                data=data, source="garmin",
+            )
+            imported += result.workouts_created
+            duplicates += result.duplicates_skipped
+    except GarminAuthError as exc:
+        await _mark_reauth(conn_repo, conn, str(exc))
+        raise
+
+    wellness_days = 0
+    day = since
+    today = datetime.now(timezone.utc).date()
+    while day <= today:
+        snap = client.get_wellness(day)
+        if any([snap.hrv_ms, snap.resting_hr, snap.sleep_hours,
+                snap.sleep_score, snap.body_battery]):
+            existing = await rec_repo.get_for_date(day, athlete_id)
+            if existing is None:
+                existing = RecoveryMetric(athlete_id=athlete_id, metric_date=day)
+                await rec_repo.add(existing)
+            existing.hrv_ms = snap.hrv_ms
+            existing.resting_hr = snap.resting_hr
+            existing.sleep_hours = snap.sleep_hours
+            existing.sleep_score = snap.sleep_score
+            existing.recovery_score = snap.body_battery
+            existing.source = "garmin"
+            wellness_days += 1
+        day += timedelta(days=1)
+
+    new_token = client.current_token()
+    if new_token and token_store.is_enabled():
+        conn.encrypted_token = token_store.encrypt(new_token)
+    conn.status = GarminConnectionStatus.CONNECTED
+    conn.last_sync_at = datetime.now(timezone.utc)
+    conn.last_error = None
+    await session.flush()
+
+    return PullResult(imported, duplicates, wellness_days)
