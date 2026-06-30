@@ -23,20 +23,21 @@ export function MethodologyView() {
   if (isLoading) return <p className="text-sm text-slate-500">Carregando…</p>
   if (error || !intel) return <p className="text-sm text-red-600">Erro ao carregar a metodologia.</p>
 
-  const twin = (intel.twin_seed ?? null) as MethodologyTwin | null
+  const twin = intel.twin_seed as MethodologyTwin | null
   const s = methodologySummary(twin)
   const split = twin?.intensity_split
   const tapers = (twin?.tapers ?? []).slice(-6).reverse()
   const terms = (twin?.coach_terms ?? []).slice(0, 15)
 
-  const splitPhrase = split
-    ? `${split.label ?? '—'} — ` +
+  const hasSplit = !!split && (split.z1_pct != null || split.z2_pct != null || split.z3_pct != null)
+  const splitPhrase = hasSplit
+    ? `${split!.label ?? '—'} — ` +
       (['z1_pct', 'z2_pct', 'z3_pct'] as const)
-        .map((k) => `${Math.round((Number(split[k] ?? 0)) * 100)}% ${SPLIT_NAMES[k]}`)
+        .map((k) => `${Math.round((Number(split![k] ?? 0)) * 100)}% ${SPLIT_NAMES[k]}`)
         .join(' · ')
     : null
 
-  const empty = !s.mesoLengthDays && s.taperCount === 0 && !split && terms.length === 0
+  const empty = !s.mesoLengthDays && !s.nBlocks && s.taperCount === 0 && !splitPhrase && terms.length === 0
 
   return (
     <div className="space-y-5">
