@@ -3,10 +3,16 @@ place that imports ``garminconnect``. Everything else depends on this Protocol,
 so the whole system is testable offline with FakeGarminClient."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Protocol
 
-from app.services.garmin.types import ActivityRef, LoginResult, WellnessSnapshot
+from app.services.garmin.types import (
+    ActivityRef,
+    Connected,
+    LoginResult,
+    NeedsMfa,
+    WellnessSnapshot,
+)
 
 
 class GarminAuthError(RuntimeError):
@@ -37,15 +43,6 @@ class GarminClient(Protocol):
 # MUST be checked against the installed lib version before/during pilot (Task 10
 # / spec §7). The skeleton below reflects the known API as of 2026-06; adjust
 # names if the lib diverges.
-from datetime import datetime, timezone  # noqa: E402
-
-from app.services.garmin.types import (  # noqa: E402
-    ActivityRef,
-    Connected,
-    LoginResult,
-    NeedsMfa,
-    WellnessSnapshot,
-)
 
 
 class RealGarminClient:
