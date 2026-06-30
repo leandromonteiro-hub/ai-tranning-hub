@@ -64,3 +64,10 @@ class GoalStatus(str, enum.Enum):
     ACTIVE = "ACTIVE"
     ACHIEVED = "ACHIEVED"
     ABANDONED = "ABANDONED"
+
+
+class GarminConnectionStatus(str, enum.Enum):
+    AWAITING_MFA = "AWAITING_MFA"
+    CONNECTED = "CONNECTED"
+    NEEDS_REAUTH = "NEEDS_REAUTH"
+    DISCONNECTED = "DISCONNECTED"
