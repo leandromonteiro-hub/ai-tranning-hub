@@ -166,16 +166,23 @@ Tudo offline — `garminconnect` só é tocado em `client.py`, então `FakeGarmi
 - Sync de wellness de outras fontes (Oura/Whoop) — specs próprios.
 - Retry automático de re-auth sem intervenção (MFA exige humano).
 
-## 9. Follow-up conhecido — wiring do export (push)
+## 9. Wiring do export (push) — IMPLEMENTADO
 
-**Decidido em 2026-06-30 (após implementação):** a CAPACIDADE de export está pronta e
-testada — `sync_service.sync_push` (traduz `StructuredWorkout` → workout do Garmin, agenda)
-e `sync_unpush` (remove o agendamento). Porém **o wiring ainda não foi feito**: nenhum handler
-de aceite/geração de recomendação chama `sync_push`, e nenhum fluxo de reversão/ajuste chama
-`sync_unpush`. Ou seja, **nesta entrega o sync automático roda só a direção de import**
-(atividades + wellness, via Celery beat/on-demand); o push Hub→Garmin é código dormente.
+**Feito em 2026-06-30** (mesma branch/PR): o export agora está fiado no fluxo de decisão da
+recomendação. No `POST /recommendations/{id}/decision`, best-effort (nunca quebra a decisão) e
+só com a feature ligada:
 
-**Próximo passo (branch própria):** fiar `sync_push` no fluxo de aceite do plano
-(`AiRecommendation.payload["structured_workout"]` → `sync_push(...)`, guardando o
-`garmin_workout_id` no `extra`/payload do `WorkoutPlanned`) e `sync_unpush` na reversão/ajuste
-do dia. Validação manual do piloto (§7 itens 3-4) cobre exatamente esse caminho quando fiado.
+- **ACCEPTED** → enfileira o job Celery `garmin_push_recommendation`, que (se a feature está
+  ligada, o Garmin está conectado, a rec tem `payload["structured_workout"]` e `target_date`)
+  traduz e empurra via `sync_push`, agenda em `target_date`, e guarda o `garmin_workout_id` em
+  `rec.payload["garmin_workout_id"]` (reassign do JSONB).
+- **REJECTED** com `garmin_workout_id` guardado → enfileira `garmin_unpush_recommendation`, que
+  faz resume do token e `sync_unpush` (remove o agendamento) e limpa o id do payload.
+
+Jobs com `client_factory`/`session_factory` injetáveis (testados offline), `autoretry_for=
+(GarminSyncError,)` com backoff; `GarminAuthError` → commit + needs_reauth. A direção de import
+(atividades + wellness) continua via Celery beat diário + on-demand. Validação manual do piloto
+(§7 itens 3-4) cobre o caminho de push/unschedule contra o Garmin real.
+
+**Follow-up menor (não bloqueia):** decisão `MODIFIED` não empurra (YAGNI); testes de paths de
+erro dos jobs (no_target_date, needs_reauth) podem ser ampliados.
