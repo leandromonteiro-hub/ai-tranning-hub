@@ -27,6 +27,7 @@ from app.models.ai import (
 )
 from app.models.knowledge import KnowledgeDocument, Embedding, PromptTemplate
 from app.models.audit import AuditLog
+from app.models.garmin import GarminConnection
 
 __all__ = [
     "Base",
@@ -60,4 +61,5 @@ __all__ = [
     "Embedding",
     "PromptTemplate",
     "AuditLog",
+    "GarminConnection",
 ]

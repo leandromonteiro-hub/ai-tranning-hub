@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 14
     rate_limit_per_minute: int = 120
+    # Garmin Connect (unofficial sync). Fernet key (base64) for token-at-rest.
+    # Empty => feature disabled (routes return 503). Generate with:
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    garmin_token_key: str = ""
 
     # Database
     database_url: str = (
