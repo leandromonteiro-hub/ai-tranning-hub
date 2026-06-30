@@ -4,7 +4,7 @@ so the whole system is testable offline with FakeGarminClient."""
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
 from app.services.garmin.types import (
     ActivityRef,
@@ -14,9 +14,6 @@ from app.services.garmin.types import (
     WellnessSnapshot,
 )
 from app.services.workout.model import Repeat, StructuredWorkout
-
-if TYPE_CHECKING:
-    pass
 
 
 class GarminAuthError(RuntimeError):

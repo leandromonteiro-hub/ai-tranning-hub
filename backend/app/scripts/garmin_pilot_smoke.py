@@ -29,7 +29,7 @@ import os
 from datetime import date, timedelta
 
 from app.models.enums import BlockType, RiskLevel
-from app.services.garmin.workout_translator import to_garmin_workout
+from app.services.garmin.client import _build_garmin_workout_dict
 from app.services.workout.builder import build_for
 
 
@@ -124,7 +124,7 @@ def main() -> int:
     # --- 5. Push + schedule + unschedule (find the real scheduled-id key) ------------
     _hdr("5. PUSH workout -> schedule (amanhã) -> unschedule (cleanup)")
     sw = build_for(BlockType.BASE, RiskLevel.LOW, 250.0)  # sample endurance
-    payload = to_garmin_workout(sw)
+    payload = _build_garmin_workout_dict(sw)
     created = api.upload_workout(payload)
     print("  -- upload_workout return --\n", _j(created))
     workout_id = created.get("workoutId") if isinstance(created, dict) else None

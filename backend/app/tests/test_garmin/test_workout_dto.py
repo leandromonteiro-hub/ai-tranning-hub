@@ -59,7 +59,7 @@ def test_warmup_step_has_numeric_ids_and_duration():
     warmup = d["workoutSegments"][0]["workoutSteps"][0]
     assert warmup["stepType"]["stepTypeId"] == 1   # StepType.WARMUP
     assert warmup["stepType"]["stepTypeKey"] == "warmup"
-    assert "conditionTypeId" in warmup["endCondition"]  # conditionTypeId == 2 (TIME)
+    assert warmup["endCondition"]["conditionTypeId"] == 2  # ConditionType.TIME
     assert warmup["endConditionValue"] == 600
 
 
@@ -75,6 +75,7 @@ def test_power_step_has_target_type_id_and_watts():
 def test_repeat_has_correct_iterations_and_child_count():
     d = _build_garmin_workout_dict(_sw())
     repeat = d["workoutSegments"][0]["workoutSteps"][1]
+    assert repeat["stepType"]["stepTypeId"] == 6  # StepType.REPEAT
     assert repeat["numberOfIterations"] == 4
     assert len(repeat["workoutSteps"]) == 2
 
