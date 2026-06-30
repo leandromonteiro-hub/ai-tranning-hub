@@ -65,7 +65,7 @@ class RealGarminClient:
         except GarminConnectAuthenticationError as exc:
             raise GarminAuthError(str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 — never leak a raw lib exception
-            raise GarminSyncError(f"login failed: {exc}") from exc
+            raise GarminAuthError(f"login failed: {exc}") from exc
         if result1 == "needs_mfa":
             return NeedsMfa(client_state=client_state)
         return Connected(token=self._dump_token())
@@ -94,7 +94,10 @@ class RealGarminClient:
             raise GarminAuthError(f"token restore failed: {exc}") from exc
 
     def _dump_token(self) -> dict:
-        return self._api.garth.dumps()
+        try:
+            return self._api.garth.dumps()
+        except Exception as exc:  # noqa: BLE001
+            raise GarminAuthError(f"token dump failed: {exc}") from exc
 
     def current_token(self) -> dict | None:
         return self._dump_token() if self._api else None
