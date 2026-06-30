@@ -1,0 +1,29 @@
+"""Garmin client interface. The concrete RealGarminClient (Task 5) is the ONLY
+place that imports ``garminconnect``. Everything else depends on this Protocol,
+so the whole system is testable offline with FakeGarminClient."""
+from __future__ import annotations
+
+from datetime import date
+from typing import Protocol
+
+from app.services.garmin.types import ActivityRef, LoginResult, WellnessSnapshot
+
+
+class GarminAuthError(RuntimeError):
+    """Auth failed / token invalid (maps to needs_reauth)."""
+
+
+class GarminSyncError(RuntimeError):
+    """A non-auth Garmin call failed (network, parse, rate-limit)."""
+
+
+class GarminClient(Protocol):
+    def login(self, email: str, password: str) -> LoginResult: ...
+    def resume_mfa(self, client_state: dict, mfa_code: str) -> dict: ...
+    def resume(self, token: dict) -> None: ...
+    def list_activities(self, since: date) -> list[ActivityRef]: ...
+    def download_activity_fit(self, activity_id: str) -> bytes: ...
+    def get_wellness(self, day: date) -> WellnessSnapshot: ...
+    def push_workout(self, structured_workout: dict, schedule_date: date) -> str: ...
+    def unschedule_workout(self, garmin_workout_id: str) -> None: ...
+    def current_token(self) -> dict | None: ...
