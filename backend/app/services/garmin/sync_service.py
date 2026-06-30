@@ -18,7 +18,6 @@ from app.repositories.garmin_repo import GarminConnectionRepository
 from app.repositories.metrics_repo import RecoveryRepository
 from app.services.garmin import token_store
 from app.services.garmin.client import GarminAuthError, GarminClient, GarminSyncError
-from app.services.garmin.workout_translator import to_garmin_workout
 from app.services.ingestion.ingestion_service import import_file
 from app.services.workout.model import StructuredWorkout
 
@@ -140,9 +139,8 @@ async def _resume_or_reauth(session, ctx, client, athlete_id):
 async def sync_push(session, ctx, client, athlete_id, sw: StructuredWorkout,
                     schedule_date: date) -> str:
     conn, conn_repo = await _resume_or_reauth(session, ctx, client, athlete_id)
-    payload = to_garmin_workout(sw)
     try:
-        wid = client.push_workout(payload, schedule_date)
+        wid = client.push_workout(sw, schedule_date)
     except GarminAuthError as exc:
         await _mark_reauth(conn_repo, conn, str(exc))
         raise

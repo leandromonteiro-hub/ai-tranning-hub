@@ -30,9 +30,8 @@ async def test_push_translates_and_sends(session, two_athletes):
     fc = FakeGarminClient()
     wid = await sync_push(session, ctx, fc, a.id, _sw(), date(2026, 7, 1))
     assert wid == "garmin-workout-1"
-    sent_dict, sent_date = fc.pushed[0]
-    assert sent_dict["workoutName"] == "Endurance 1h"
-    assert sent_date == date(2026, 7, 1)
+    assert fc.pushed[0][0].name == "Endurance 1h"
+    assert fc.pushed[0][1] == date(2026, 7, 1)
 
 
 @pytest.mark.asyncio
