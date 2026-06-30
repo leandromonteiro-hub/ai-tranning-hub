@@ -165,3 +165,17 @@ Tudo offline — `garminconnect` só é tocado em `client.py`, então `FakeGarmi
 - API oficial de parceiro (reavaliar se comercial).
 - Sync de wellness de outras fontes (Oura/Whoop) — specs próprios.
 - Retry automático de re-auth sem intervenção (MFA exige humano).
+
+## 9. Follow-up conhecido — wiring do export (push)
+
+**Decidido em 2026-06-30 (após implementação):** a CAPACIDADE de export está pronta e
+testada — `sync_service.sync_push` (traduz `StructuredWorkout` → workout do Garmin, agenda)
+e `sync_unpush` (remove o agendamento). Porém **o wiring ainda não foi feito**: nenhum handler
+de aceite/geração de recomendação chama `sync_push`, e nenhum fluxo de reversão/ajuste chama
+`sync_unpush`. Ou seja, **nesta entrega o sync automático roda só a direção de import**
+(atividades + wellness, via Celery beat/on-demand); o push Hub→Garmin é código dormente.
+
+**Próximo passo (branch própria):** fiar `sync_push` no fluxo de aceite do plano
+(`AiRecommendation.payload["structured_workout"]` → `sync_push(...)`, guardando o
+`garmin_workout_id` no `extra`/payload do `WorkoutPlanned`) e `sync_unpush` na reversão/ajuste
+do dia. Validação manual do piloto (§7 itens 3-4) cobre exatamente esse caminho quando fiado.
