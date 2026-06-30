@@ -43,6 +43,7 @@ async def test_pull_imports_activity_and_wellness(session, two_athletes):
     assert res.wellness_days == 1
     rec = await RecoveryRepository(session, ctx).list_recent(date(2026, 6, 1))
     assert rec[0].hrv_ms == 62.0
+    assert rec[0].recovery_score == 66.0
     assert rec[0].source == "garmin"
 
 
@@ -57,6 +58,20 @@ async def test_pull_is_idempotent(session, two_athletes):
     assert res2.activities_imported == 0
     workouts = await WorkoutRepository(session, ctx).list()
     assert len(workouts) == 1  # não duplicou
+    assert len(await RecoveryRepository(session, ctx).list_recent(date(2026, 6, 1))) == 1
+
+
+@pytest.mark.asyncio
+async def test_wellness_auth_error_marks_needs_reauth(session, two_athletes):
+    a, _ = two_athletes
+    ctx = ctx_for(a)
+    await GarminConnectionRepository(session, ctx).get_or_create()
+    bad = FakeGarminClient(activities=[], raise_auth_on_wellness=True)
+    with pytest.raises(GarminAuthError):
+        await sync_pull(session, ctx, bad, a.id)
+    conn = await GarminConnectionRepository(session, ctx).get_for_athlete()
+    assert conn.status is GarminConnectionStatus.NEEDS_REAUTH
+    assert conn.last_error
 
 
 @pytest.mark.asyncio

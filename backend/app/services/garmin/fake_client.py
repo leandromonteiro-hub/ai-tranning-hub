@@ -22,12 +22,14 @@ class FakeGarminClient:
         fit_bytes: bytes = b"FIT",
         wellness: dict[date, WellnessSnapshot] | None = None,
         raise_auth_on_resume: bool = False,
+        raise_auth_on_wellness: bool = False,
     ):
         self._needs_mfa = needs_mfa
         self._activities = activities or []
         self._fit_bytes = fit_bytes
         self._wellness = wellness or {}
         self._raise_auth_on_resume = raise_auth_on_resume
+        self._raise_auth_on_wellness = raise_auth_on_wellness
         self._token: dict | None = None
         self.pushed: list[tuple[dict, date]] = []
         self.unscheduled: list[str] = []
@@ -57,6 +59,8 @@ class FakeGarminClient:
         return self._fit_bytes
 
     def get_wellness(self, day: date) -> WellnessSnapshot:
+        if self._raise_auth_on_wellness:
+            raise GarminAuthError("wellness auth failed")
         return self._wellness.get(day, WellnessSnapshot(day=day))
 
     def push_workout(self, structured_workout: dict, schedule_date: date) -> str:
