@@ -23,6 +23,7 @@ class FakeGarminClient:
         wellness: dict[date, WellnessSnapshot] | None = None,
         raise_auth_on_resume: bool = False,
         raise_auth_on_wellness: bool = False,
+        raise_auth_on_push: bool = False,
     ):
         self._needs_mfa = needs_mfa
         self._activities = activities or []
@@ -30,6 +31,7 @@ class FakeGarminClient:
         self._wellness = wellness or {}
         self._raise_auth_on_resume = raise_auth_on_resume
         self._raise_auth_on_wellness = raise_auth_on_wellness
+        self._raise_auth_on_push = raise_auth_on_push
         self._token: dict | None = None
         self.pushed: list[tuple[dict, date]] = []
         self.unscheduled: list[str] = []
@@ -64,6 +66,8 @@ class FakeGarminClient:
         return self._wellness.get(day, WellnessSnapshot(day=day))
 
     def push_workout(self, structured_workout: dict, schedule_date: date) -> str:
+        if self._raise_auth_on_push:
+            raise GarminAuthError("push auth failed")
         self._workout_seq += 1
         wid = f"garmin-workout-{self._workout_seq}"
         self.pushed.append((structured_workout, schedule_date))
