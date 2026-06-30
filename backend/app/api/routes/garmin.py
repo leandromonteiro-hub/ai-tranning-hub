@@ -63,7 +63,8 @@ async def connect(
         await db.commit()
         return GarminConnectResponse(needs_mfa=True, status=conn.status.value)
     # Connected directly (no MFA)
-    assert isinstance(result, Connected)
+    if not isinstance(result, Connected):
+        raise HTTPException(status_code=500, detail="unexpected login result")
     conn.encrypted_token = token_store.encrypt(result.token)
     conn.status = GarminConnectionStatus.CONNECTED
     conn.connected_at = datetime.now(timezone.utc)
@@ -129,6 +130,7 @@ async def trigger_sync(
     db: AsyncSession = Depends(get_db),
 ):
     _require_enabled()
+    # Inline import to avoid circular import at module load time.
     from app.jobs.garmin_job import sync_athlete_garmin
 
     task_id = None
