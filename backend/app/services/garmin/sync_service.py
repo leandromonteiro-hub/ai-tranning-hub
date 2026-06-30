@@ -17,7 +17,7 @@ from app.models.metrics import RecoveryMetric
 from app.repositories.garmin_repo import GarminConnectionRepository
 from app.repositories.metrics_repo import RecoveryRepository
 from app.services.garmin import token_store
-from app.services.garmin.client import GarminAuthError, GarminClient
+from app.services.garmin.client import GarminAuthError, GarminClient, GarminSyncError
 from app.services.garmin.workout_translator import to_garmin_workout
 from app.services.ingestion.ingestion_service import import_file
 from app.services.workout.model import StructuredWorkout
@@ -25,6 +25,7 @@ from app.services.workout.model import StructuredWorkout
 log = get_logger(__name__)
 
 _PULL_MARGIN_DAYS = 2
+_FIRST_SYNC_BACKFILL_DAYS = 60
 
 
 @dataclass
@@ -41,7 +42,10 @@ async def _mark_reauth(repo: GarminConnectionRepository, conn: GarminConnection,
 
 
 def _since(conn) -> date:
-    base = conn.last_sync_at.date() if conn.last_sync_at else date(2020, 1, 1)
+    if conn.last_sync_at:
+        base = conn.last_sync_at.date()
+    else:
+        base = datetime.now(timezone.utc).date() - timedelta(days=_FIRST_SYNC_BACKFILL_DAYS)
     return base - timedelta(days=_PULL_MARGIN_DAYS)
 
 
@@ -70,14 +74,18 @@ async def sync_pull(
     duplicates = 0
     try:
         for ref in client.list_activities(since):
-            data = client.download_activity_fit(ref.activity_id)
-            result = await import_file(
-                session, ctx, athlete_id,
-                filename=f"{ref.activity_id}.{_activity_ext}",
-                data=data, source="garmin",
-            )
-            imported += result.workouts_created
-            duplicates += result.duplicates_skipped
+            try:
+                data = client.download_activity_fit(ref.activity_id)
+                result = await import_file(
+                    session, ctx, athlete_id,
+                    filename=f"{ref.activity_id}.{_activity_ext}",
+                    data=data, source="garmin",
+                )
+                imported += result.workouts_created
+                duplicates += result.duplicates_skipped
+            except GarminSyncError as exc:
+                log.warning("garmin: skipping activity %s — %s", ref.activity_id, exc)
+                continue
     except GarminAuthError as exc:
         await _mark_reauth(conn_repo, conn, str(exc))
         raise
