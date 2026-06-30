@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from datetime import date, timedelta
 
 from app.models.enums import BlockType, RiskLevel
@@ -49,6 +50,7 @@ def main() -> int:
         print("Set GARMIN_EMAIL and GARMIN_PASSWORD env vars.")
         return 2
     test_day = os.getenv("GARMIN_TEST_DATE") or (date.today() - timedelta(days=1)).isoformat()
+    readonly = "--read-only" in sys.argv or bool(os.getenv("GARMIN_SMOKE_READONLY"))
 
     from garminconnect import Garmin
 
@@ -122,44 +124,50 @@ def main() -> int:
         summary["activities"] = "no activities in last 7d"
 
     # --- 5. Push + schedule + unschedule (find the real scheduled-id key) ------------
-    _hdr("5. PUSH workout -> schedule (amanhã) -> unschedule (cleanup)")
-    sw = build_for(BlockType.BASE, RiskLevel.LOW, 250.0)  # sample endurance
-    payload = _build_garmin_workout_dict(sw)
-    created = api.upload_workout(payload)
-    print("  -- upload_workout return --\n", _j(created))
-    workout_id = created.get("workoutId") if isinstance(created, dict) else None
-    print("  workoutId:", workout_id)
+    if readonly:
+        _hdr("5. PUSH — PULADO (modo --read-only)")
+        print("  read-only ativo: NÃO cria nem agenda treino no Garmin. "
+              "Rode sem --read-only depois pra validar o push e a chave do scheduled-id.")
+        summary["push"] = "skipped (read-only)"
+    else:
+        _hdr("5. PUSH workout -> schedule (amanhã) -> unschedule (cleanup)")
+        sw = build_for(BlockType.BASE, RiskLevel.LOW, 250.0)  # sample endurance
+        payload = _build_garmin_workout_dict(sw)
+        created = api.upload_workout(payload)
+        print("  -- upload_workout return --\n", _j(created))
+        workout_id = created.get("workoutId") if isinstance(created, dict) else None
+        print("  workoutId:", workout_id)
 
-    sched_id = None
-    if workout_id is not None:
-        tomorrow = (date.today() + timedelta(days=1)).isoformat()
-        scheduled = api.schedule_workout(workout_id, tomorrow)
-        print("  -- schedule_workout return (PROCURE a chave do scheduled-id aqui) --\n", _j(scheduled))
-        if isinstance(scheduled, dict):
-            for k in ("workoutScheduleId", "scheduleId", "id"):
-                if scheduled.get(k) is not None:
-                    sched_id = scheduled[k]
-                    print(f"  >>> scheduled-id detectado na chave '{k}': {sched_id}")
-                    summary["schedule_id_key"] = k
-                    break
-            if sched_id is None:
-                print("  >>> NENHUMA das chaves testadas (workoutScheduleId/scheduleId/id) — "
-                      "veja o raw acima e me diga a chave certa.")
-                summary["schedule_id_key"] = "UNKNOWN — check raw above"
-
-    # cleanup: unschedule the scheduled instance, then delete the library workout
-    try:
-        if sched_id is not None:
-            api.unschedule_workout(sched_id)
-            print("  unschedule_workout OK (agendamento removido)")
-            summary["unschedule"] = "OK"
+        sched_id = None
         if workout_id is not None:
-            api.delete_workout(workout_id)
-            print("  delete_workout OK (workout removido da biblioteca — cleanup)")
-    except Exception as exc:  # noqa: BLE001 — cleanup best-effort, report it
-        print(f"  ⚠️ cleanup falhou ({exc}) — verifique manualmente no Garmin Connect "
-              f"(workoutId={workout_id}, scheduledId={sched_id}).")
-        summary["cleanup"] = f"MANUAL ({exc})"
+            tomorrow = (date.today() + timedelta(days=1)).isoformat()
+            scheduled = api.schedule_workout(workout_id, tomorrow)
+            print("  -- schedule_workout return (PROCURE a chave do scheduled-id aqui) --\n", _j(scheduled))
+            if isinstance(scheduled, dict):
+                for k in ("workoutScheduleId", "scheduleId", "id"):
+                    if scheduled.get(k) is not None:
+                        sched_id = scheduled[k]
+                        print(f"  >>> scheduled-id detectado na chave '{k}': {sched_id}")
+                        summary["schedule_id_key"] = k
+                        break
+                if sched_id is None:
+                    print("  >>> NENHUMA das chaves testadas (workoutScheduleId/scheduleId/id) — "
+                          "veja o raw acima e me diga a chave certa.")
+                    summary["schedule_id_key"] = "UNKNOWN — check raw above"
+
+        # cleanup: unschedule the scheduled instance, then delete the library workout
+        try:
+            if sched_id is not None:
+                api.unschedule_workout(sched_id)
+                print("  unschedule_workout OK (agendamento removido)")
+                summary["unschedule"] = "OK"
+            if workout_id is not None:
+                api.delete_workout(workout_id)
+                print("  delete_workout OK (workout removido da biblioteca — cleanup)")
+        except Exception as exc:  # noqa: BLE001 — cleanup best-effort, report it
+            print(f"  ⚠️ cleanup falhou ({exc}) — verifique manualmente no Garmin Connect "
+                  f"(workoutId={workout_id}, scheduledId={sched_id}).")
+            summary["cleanup"] = f"MANUAL ({exc})"
 
     # --- SUMMARY ---------------------------------------------------------------------
     _hdr("SUMMARY (confirme os shapes; ajuste RealGarminClient se algo der MISSING/UNKNOWN)")
