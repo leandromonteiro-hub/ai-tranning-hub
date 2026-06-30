@@ -36,13 +36,24 @@ class GarminClient(Protocol):
 
 
 # --- Concrete adapter (the ONLY garminconnect import in the codebase) --------
-# VERIFICATION NOTE: the exact garminconnect 0.3.6 method names
-# (login(return_on_mfa=True), get_activities_by_date, download_activity,
-# get_hrv_data/get_sleep_data/get_rhr_day/get_body_battery,
-# upload_workout/schedule_workout/delete_workout, garth.dumps/loads)
-# MUST be checked against the installed lib version before/during pilot (Task 10
-# / spec §7). The skeleton below reflects the known API as of 2026-06; adjust
-# names if the lib diverges.
+# VERIFICATION NOTE (2026-06-30, garminconnect 0.3.6 introspection):
+# Method NAMES are now verified:
+#   login(return_on_mfa=True), resume_login, get_activities_by_date,
+#   download_activity(dl_fmt=ActivityDownloadFormat.ORIGINAL),
+#   get_hrv_data, get_sleep_data, get_rhr_day, get_body_battery,
+#   upload_workout, schedule_workout, unschedule_workout, get_full_name,
+#   garmin.client.dumps() / garmin.client.loads(tokenstore: str).
+# There is NO garth attribute and NO refresh_oauth2 / delete_workout.
+# The token object is garmin.client (garminconnect.client.Client).
+#
+# RESIDUAL pilot-gate items (response-body shapes, unverified against a live account):
+#   - schedule_workout() response: key for the scheduled-workout id
+#     (tried: workoutScheduleId, scheduleId, id; falls back to workoutId).
+#   - get_hrv_data(): hrvSummary.lastNightAvg field path.
+#   - get_sleep_data(): dailySleepDTO.* field paths.
+#   - get_rhr_day(): allMetrics.metricsMap.WELLNESS_RESTING_HEART_RATE path.
+#   - get_body_battery(): list-of-dicts with "charged" key.
+# Confirm these during first pilot run against a real Garmin account.
 
 
 class RealGarminClient:
@@ -85,14 +96,16 @@ class RealGarminClient:
 
         try:
             self._api = Garmin()
-            self._api.garth.loads(token)  # restore serialized garth session
-            self._api.garth.refresh_oauth2()  # force-refresh; raises if invalid
-        except Exception as exc:  # noqa: BLE001 — any restore failure => reauth
+            self._api.client.loads(token["tokenstore"])
+            # No explicit refresh in 0.3.6 — validate with a cheap authed call so an
+            # expired/invalid token surfaces now as GarminAuthError (→ needs_reauth).
+            self._api.get_full_name()
+        except Exception as exc:  # noqa: BLE001 — any restore/validate failure => reauth
             raise GarminAuthError(f"token restore failed: {exc}") from exc
 
     def _dump_token(self) -> dict:
         try:
-            return self._api.garth.dumps()
+            return {"tokenstore": self._api.client.dumps()}
         except Exception as exc:  # noqa: BLE001
             raise GarminAuthError(f"token dump failed: {exc}") from exc
 
@@ -154,14 +167,23 @@ class RealGarminClient:
     def push_workout(self, structured_workout: dict, schedule_date: date) -> str:
         try:
             created = self._api.upload_workout(structured_workout)
-            workout_id = str(created.get("workoutId"))
-            self._api.schedule_workout(workout_id, schedule_date.isoformat())
-            return workout_id
+            workout_id = created.get("workoutId")
+            scheduled = self._api.schedule_workout(workout_id, schedule_date.isoformat())
+            # The scheduled-workout id (needed to unschedule) lives in the schedule
+            # response. Field name not yet verified against a live account — try the
+            # common keys, fall back to workout_id. PILOT: confirm the real key.
+            sched_id = None
+            if isinstance(scheduled, dict):
+                for k in ("workoutScheduleId", "scheduleId", "id"):
+                    if scheduled.get(k) is not None:
+                        sched_id = scheduled[k]
+                        break
+            return str(sched_id if sched_id is not None else workout_id)
         except Exception as exc:  # noqa: BLE001
             raise GarminSyncError(f"push_workout failed: {exc}") from exc
 
     def unschedule_workout(self, garmin_workout_id: str) -> None:
         try:
-            self._api.delete_workout(garmin_workout_id)
+            self._api.unschedule_workout(garmin_workout_id)
         except Exception as exc:  # noqa: BLE001
             raise GarminSyncError(f"unschedule failed: {exc}") from exc
