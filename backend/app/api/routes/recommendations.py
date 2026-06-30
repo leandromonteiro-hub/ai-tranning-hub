@@ -9,19 +9,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_tenant
 from app.core.database import get_db
+from app.core.logging import get_logger
 from app.core.tenant import TenantContext
 from app.models.ai import AiDecision
-from app.models.enums import BlockType, RiskLevel
+from app.models.enums import BlockType, RecommendationDecision, RiskLevel
 from app.repositories.ai_repo import DecisionRepository, RecommendationRepository
 from app.schemas.ai import DecisionRequest, RecommendationRead, RecommendationRequest
 from app.services.ai.profile_context import anamnese_complete, fetch_profile
 from app.services.ai.recommender import generate_recommendation
+from app.services.garmin import token_store
 from app.services.workout.builder import build_for
 from app.services.workout.fit_encoder import encode as encode_fit
 from app.services.workout.model import StructuredWorkout
 from app.services.workout.zwo_encoder import encode_zwo
 
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
+log = get_logger(__name__)
 
 # Named sample workouts for device-import testing (template -> block, risk).
 _SAMPLE_TEMPLATES: dict[str, tuple[BlockType, RiskLevel]] = {
@@ -203,5 +206,25 @@ async def record_decision(
             comment=body.comment,
         )
     )
+
+    # Best-effort Garmin export enqueue — broker outage must never fail the decision.
+    if token_store.is_enabled():
+        try:
+            if body.decision == RecommendationDecision.ACCEPTED:
+                # Inline import to avoid circular import at module load time.
+                from app.jobs.garmin_job import push_recommendation_to_garmin
+                push_recommendation_to_garmin.delay(
+                    str(rec.id), str(ctx.athlete_id), ctx.tenant_id
+                )
+            elif body.decision == RecommendationDecision.REJECTED and (rec.payload or {}).get(
+                "garmin_workout_id"
+            ):
+                from app.jobs.garmin_job import unpush_recommendation_from_garmin
+                unpush_recommendation_from_garmin.delay(
+                    str(rec.id), str(ctx.athlete_id), ctx.tenant_id
+                )
+        except Exception:
+            log.exception("garmin export enqueue failed; decision already recorded")
+
     await db.refresh(rec, attribute_names=["evidence"])
     return RecommendationRead.model_validate(rec)
