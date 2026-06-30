@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from app.services.garmin.client import GarminAuthError
+from app.services.garmin.client import GarminAuthError, GarminSyncError
 from app.services.garmin.types import (
     ActivityRef,
     Connected,
@@ -24,6 +24,7 @@ class FakeGarminClient:
         raise_auth_on_resume: bool = False,
         raise_auth_on_wellness: bool = False,
         raise_auth_on_push: bool = False,
+        raise_sync_on_first_download: bool = False,
     ):
         self._needs_mfa = needs_mfa
         self._activities = activities or []
@@ -32,10 +33,13 @@ class FakeGarminClient:
         self._raise_auth_on_resume = raise_auth_on_resume
         self._raise_auth_on_wellness = raise_auth_on_wellness
         self._raise_auth_on_push = raise_auth_on_push
+        self._raise_sync_on_first_download = raise_sync_on_first_download
         self._token: dict | None = None
         self.pushed: list[tuple[dict, date]] = []
         self.unscheduled: list[str] = []
         self._workout_seq = 0
+        self.list_since: date | None = None
+        self._download_count = 0
 
     def login(self, email: str, password: str) -> LoginResult:
         if self._needs_mfa:
@@ -51,6 +55,7 @@ class FakeGarminClient:
         self._token = token
 
     def list_activities(self, since: date) -> list[ActivityRef]:
+        self.list_since = since
         return [
             ActivityRef(activity_id=aid, start_time=ts)
             for aid, ts in self._activities
@@ -58,6 +63,9 @@ class FakeGarminClient:
         ]
 
     def download_activity_fit(self, activity_id: str) -> bytes:
+        self._download_count += 1
+        if self._raise_sync_on_first_download and self._download_count == 1:
+            raise GarminSyncError("simulated download failure")
         return self._fit_bytes
 
     def get_wellness(self, day: date) -> WellnessSnapshot:

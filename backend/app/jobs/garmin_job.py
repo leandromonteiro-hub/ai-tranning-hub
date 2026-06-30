@@ -11,7 +11,7 @@ from app.jobs._run import run_async
 from app.models.athlete import Athlete
 from app.models.enums import GarminConnectionStatus, Role
 from app.models.garmin import GarminConnection
-from app.services.garmin.client import GarminAuthError, RealGarminClient
+from app.services.garmin.client import GarminAuthError, GarminSyncError, RealGarminClient
 from app.services.garmin.sync_service import sync_pull
 from app.services.metrics.recompute import recompute_load_metrics
 
@@ -79,7 +79,12 @@ def beat_sync_all() -> int:
 try:
     from app.jobs.celery_app import celery
 
-    sync_athlete_garmin = celery.task(name="garmin_sync")(sync_athlete_garmin)  # type: ignore[assignment]
+    sync_athlete_garmin = celery.task(  # type: ignore[assignment]
+        name="garmin_sync",
+        autoretry_for=(GarminSyncError,),
+        retry_backoff=True,
+        max_retries=3,
+    )(sync_athlete_garmin)
     beat_sync_all = celery.task(name="garmin_beat_sync_all")(beat_sync_all)  # type: ignore[assignment]
 except Exception:  # noqa: BLE001 — importable without a broker (tests)
     pass
