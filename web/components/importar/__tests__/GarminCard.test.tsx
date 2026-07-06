@@ -1,11 +1,15 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { GarminCard } from '@/components/importar/GarminCard'
 import { useGarminStatus } from '@/lib/hooks'
+import { apiFetch } from '@/lib/api'
 import type { GarminStatus } from '@/lib/types'
 
 vi.mock('@/lib/hooks', () => ({ useGarminStatus: vi.fn() }))
 vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }))
+
+const jsonRes = (body: unknown, status = 200) =>
+  ({ ok: status < 400, status, json: async () => body }) as Response
 
 const statusOf = (over: Partial<GarminStatus>): GarminStatus => ({
   status: 'DISCONNECTED', last_sync_at: null, needs_reauth: false, last_error: null, ...over,
@@ -52,5 +56,77 @@ describe('GarminCard — estados de leitura', () => {
     mockHook({ data: statusOf({ status: 'CONNECTED', last_sync_at: twoHoursAgo }) })
     render(<GarminCard />)
     expect(screen.getByText(/há 2 h/)).toBeInTheDocument()
+  })
+})
+
+describe('GarminCard — conectar e MFA', () => {
+  it('DISCONNECTED: botão Conectar só habilita com consentimento e campos', () => {
+    mockHook({ data: statusOf({ status: 'DISCONNECTED' }) })
+    render(<GarminCard />)
+    const btn = screen.getByRole('button', { name: /Conectar/ })
+    expect(btn).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Email da conta Garmin'), { target: { value: 'a@b.c' } })
+    fireEvent.change(screen.getByLabelText('Senha'), { target: { value: 'pw' } })
+    expect(btn).toBeDisabled() // ainda falta o consentimento
+    fireEvent.click(screen.getByRole('checkbox'))
+    expect(btn).toBeEnabled()
+  })
+
+  it('connect com 400 mostra erro inline e não navega', async () => {
+    mockHook({ data: statusOf({ status: 'DISCONNECTED' }) })
+    ;(apiFetch as Mock).mockResolvedValue(jsonRes({ detail: 'bad' }, 400))
+    render(<GarminCard />)
+    fireEvent.change(screen.getByLabelText('Email da conta Garmin'), { target: { value: 'a@b.c' } })
+    fireEvent.change(screen.getByLabelText('Senha'), { target: { value: 'pw' } })
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: /Conectar/ }))
+    expect(await screen.findByText('Email ou senha da Garmin inválidos.')).toBeInTheDocument()
+  })
+
+  it('connect ok revalida o status', async () => {
+    const mutate = vi.fn()
+    ;(useGarminStatus as Mock).mockReturnValue({
+      data: statusOf({ status: 'DISCONNECTED' }), error: undefined, isLoading: false, mutate,
+    })
+    ;(apiFetch as Mock).mockResolvedValue(jsonRes({ needs_mfa: false, status: 'CONNECTED' }))
+    render(<GarminCard />)
+    fireEvent.change(screen.getByLabelText('Email da conta Garmin'), { target: { value: 'a@b.c' } })
+    fireEvent.change(screen.getByLabelText('Senha'), { target: { value: 'pw' } })
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: /Conectar/ }))
+    await waitFor(() => expect(mutate).toHaveBeenCalled())
+    expect(apiFetch).toHaveBeenCalledWith('garmin/connect', expect.objectContaining({ method: 'POST' }))
+  })
+
+  it('AWAITING_MFA mostra campo de código e envia para connect/mfa', async () => {
+    const mutate = vi.fn()
+    ;(useGarminStatus as Mock).mockReturnValue({
+      data: statusOf({ status: 'AWAITING_MFA' }), error: undefined, isLoading: false, mutate,
+    })
+    ;(apiFetch as Mock).mockResolvedValue(jsonRes({ needs_mfa: false, status: 'CONNECTED' }))
+    render(<GarminCard />)
+    fireEvent.change(screen.getByLabelText('Código de verificação (MFA)'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: /Confirmar código/ }))
+    await waitFor(() => expect(mutate).toHaveBeenCalled())
+    expect(apiFetch).toHaveBeenCalledWith('garmin/connect/mfa', expect.objectContaining({ method: 'POST' }))
+  })
+
+  it('MFA expirado (409) volta ao form de credenciais com aviso', async () => {
+    mockHook({ data: statusOf({ status: 'AWAITING_MFA' }) })
+    ;(apiFetch as Mock).mockResolvedValue(jsonRes({ detail: 'MFA expired' }, 409))
+    render(<GarminCard />)
+    fireEvent.change(screen.getByLabelText('Código de verificação (MFA)'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: /Confirmar código/ }))
+    expect(await screen.findByText('Tempo esgotado — conecte de novo.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Email da conta Garmin')).toBeInTheDocument()
+  })
+
+  it('NEEDS_REAUTH mostra badge âmbar, last_error e form sem checkbox', () => {
+    mockHook({ data: statusOf({ status: 'NEEDS_REAUTH', needs_reauth: true, last_error: 'token expirou' }) })
+    render(<GarminCard />)
+    expect(screen.getByText('Reconexão necessária')).toBeInTheDocument()
+    expect(screen.getByText(/token expirou/)).toBeInTheDocument()
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Email da conta Garmin')).toBeInTheDocument()
   })
 })
