@@ -1,10 +1,9 @@
 """Athlete identity, profile, goals and availability."""
 from __future__ import annotations
 
-import uuid
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TenantMixin
@@ -18,12 +17,21 @@ class Athlete(Base):
     __tablename__ = "athletes"
 
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
-    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Nullable: contas criadas via Google SSO não têm senha.
+    hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[Role] = mapped_column(EnumStr(Role, 16), default=Role.ATHLETE, nullable=False)
     # tenant_id makes isolation explicit even if athlete ids were ever reused.
     tenant_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Vínculo com a conta Google (sub do ID token). Nullable = sem SSO.
+    google_sub: Mapped[str | None] = mapped_column(
+        String(64), unique=True, index=True, nullable=True
+    )
+    # Wizard /bem-vindo concluído. NULL = ainda no onboarding.
+    onboarding_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     profile: Mapped["AthleteProfile | None"] = relationship(
         back_populates="athlete", uselist=False

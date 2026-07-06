@@ -1,6 +1,7 @@
 """SQLAlchemy models. Importing this package registers all tables on Base."""
 from app.models.base import Base
 from app.models.athlete import Athlete, AthleteProfile, AthleteGoal, AthleteAvailability
+from app.models.invite import InviteCode
 from app.models.workout import (
     WorkoutCompleted,
     WorkoutPlanned,
@@ -35,6 +36,7 @@ __all__ = [
     "AthleteProfile",
     "AthleteGoal",
     "AthleteAvailability",
+    "InviteCode",
     "WorkoutCompleted",
     "WorkoutPlanned",
     "WorkoutStream",
