@@ -32,6 +32,7 @@ dependencies = [
     "anthropic>=0.40",
     "fastembed>=0.4",
     "garminconnect>=0.3.6",
+    "google-auth>=2.28",
     "cryptography>=42",
 ]
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, computed_field
+from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     # Empty => feature disabled (routes return 503). Generate with:
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     garmin_token_key: str = ""
+
+    # Google SSO. Vazio => login com Google desligado (rota /auth/google responde 503).
+    google_client_id: str = ""
 
     # Database
     database_url: str = (
