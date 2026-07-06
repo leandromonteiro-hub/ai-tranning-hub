@@ -440,7 +440,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Test: `backend/app/tests/test_auth_sso/test_signup.py`
 
 **Interfaces:**
-- Consumes: `invites.find_valid/consume` (Task 1).
+- Consumes: `invites.find_valid(session, code)` e `await invites.consume(session, invite_id, athlete_id) -> bool` (Task 1 — consumo é UPDATE condicional atômico; False = outra transação consumiu antes).
 - Produces: `POST /auth/signup` `{full_name, email, password(min 8), invite_code}` → 201 `TokenResponse`; 409 email duplicado; 403 convite inválido. `POST /auth/login` em conta com `hashed_password IS NULL` → 400 `"Esta conta usa Entrar com Google."`. Access token passa a carregar claim `email`. `_tokens_for` inalterado na assinatura (usa `athlete.email` internamente).
 
 - [ ] **Step 1: Escrever os testes que falham**
@@ -622,7 +622,9 @@ async def signup(req: SignupRequest, db: AsyncSession = Depends(get_db)) -> Toke
         tenant_id=f"tenant_{uuid.uuid4().hex[:12]}",
     )
     await repo.add(athlete)
-    invites.consume(invite, athlete.id)
+    if not await invites.consume(db, invite.id, athlete.id):
+        # corrida: outra transação usou o código entre find_valid e aqui
+        raise HTTPException(status_code=403, detail="invite_invalid")
     return _tokens_for(athlete)
 ```
 
@@ -876,7 +878,8 @@ async def google_login(
                 google_sub=ident.sub,
             )
             await repo.add(athlete)
-            invites.consume(invite, athlete.id)
+            if not await invites.consume(db, invite.id, athlete.id):
+                raise HTTPException(status_code=403, detail="invite_invalid")
     if not athlete.is_active:
         raise HTTPException(status_code=403, detail="Inactive account")
     return _tokens_for(athlete)
