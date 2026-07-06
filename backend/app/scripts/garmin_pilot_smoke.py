@@ -17,7 +17,14 @@ Run (no Python on host → use the backend Docker image, interactive for the MFA
       -e GARMIN_EMAIL="you@example.com" -e GARMIN_PASSWORD="..." \
       aath-backend:latest sh -c "pip install -q -e '.[dev]' && python -m app.scripts.garmin_pilot_smoke"
 
-Optional env: GARMIN_TEST_DATE=YYYY-MM-DD (wellness day; default = yesterday).
+Optional env:
+    GARMIN_TEST_DATE=YYYY-MM-DD  wellness day (default = yesterday).
+    GARMIN_MFA_FILE=/app/.garmin_mfa   non-interactive MFA: instead of prompting on
+        stdin, poll this path (up to 5 min) until someone writes the 6-digit code
+        into it; the file is consumed (deleted) after reading.
+    GARMIN_TOKEN_FILE=/app/.garmin_token   persist the session token here after a
+        successful login and, when the file already exists, resume from it —
+        skipping password+MFA entirely on subsequent runs.
 
 The SUMMARY at the end lists which field paths resolved. If any show MISSING, copy the
 printed raw shape and we adjust `RealGarminClient` accordingly.
@@ -27,6 +34,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from datetime import date, timedelta
 
 from app.models.enums import BlockType, RiskLevel
@@ -43,34 +51,67 @@ def _hdr(title: str) -> None:
     print("\n" + "=" * 70 + f"\n{title}\n" + "=" * 70)
 
 
+def _prompt_mfa() -> str:
+    """MFA code via stdin, or via file polling when GARMIN_MFA_FILE is set (headless)."""
+    mfa_file = os.getenv("GARMIN_MFA_FILE")
+    if not mfa_file:
+        return input("  MFA code: ").strip()
+    print(f"  MFA requerido — aguardando código em {mfa_file} (timeout 300s)…", flush=True)
+    for _ in range(300):
+        if os.path.exists(mfa_file):
+            with open(mfa_file, encoding="utf-8") as fh:
+                code = fh.read().strip()
+            os.remove(mfa_file)  # consume: never leave the code lying around
+            if code:
+                print("  código recebido.")
+                return code
+        time.sleep(1)
+    raise TimeoutError(f"MFA code not written to {mfa_file} within 300s")
+
+
 def main() -> int:
-    email = os.getenv("GARMIN_EMAIL")
-    password = os.getenv("GARMIN_PASSWORD")
-    if not email or not password:
-        print("Set GARMIN_EMAIL and GARMIN_PASSWORD env vars.")
-        return 2
     test_day = os.getenv("GARMIN_TEST_DATE") or (date.today() - timedelta(days=1)).isoformat()
     readonly = "--read-only" in sys.argv or bool(os.getenv("GARMIN_SMOKE_READONLY"))
+    token_file = os.getenv("GARMIN_TOKEN_FILE")
 
     from garminconnect import Garmin
 
     summary: dict[str, str] = {}
 
-    # --- 1. Login (interactive MFA) -------------------------------------------------
-    _hdr("1. LOGIN (MFA interativo)")
-    api = Garmin(email=email, password=password, prompt_mfa=lambda: input("  MFA code: ").strip())
-    api.login()
-    print("  login OK — full name:", api.get_full_name())
-    summary["login"] = "OK"
+    # --- 1. Login (MFA interativo, via arquivo, ou resume de token salvo) -----------
+    _hdr("1. LOGIN")
+    if token_file and os.path.exists(token_file):
+        api = Garmin()
+        with open(token_file, encoding="utf-8") as fh:
+            # login(tokenstore=...) — not client.loads() — so profile/settings load
+            # and display_name (embedded in wellness URLs) is populated.
+            api.login(tokenstore=fh.read())
+        print("  sessão restaurada de", token_file, "— full name:", api.get_full_name())
+        summary["login"] = "OK (resumed from token file)"
+    else:
+        email = os.getenv("GARMIN_EMAIL")
+        password = os.getenv("GARMIN_PASSWORD")
+        if not email or not password:
+            print("Set GARMIN_EMAIL and GARMIN_PASSWORD env vars (or GARMIN_TOKEN_FILE).")
+            return 2
+        api = Garmin(email=email, password=password, prompt_mfa=_prompt_mfa)
+        api.login()
+        print("  login OK — full name:", api.get_full_name())
+        summary["login"] = "OK"
+        if token_file:
+            with open(token_file, "w", encoding="utf-8") as fh:
+                fh.write(api.client.dumps())
+            print("  token salvo em", token_file, "(próximas execuções pulam senha/MFA)")
 
-    # --- 2. Token round-trip (client.dumps/loads) -----------------------------------
-    _hdr("2. TOKEN round-trip (client.dumps -> loads -> get_full_name)")
+    # --- 2. Token round-trip (client.dumps -> login(tokenstore=...)) ----------------
+    _hdr("2. TOKEN round-trip (client.dumps -> login(tokenstore) -> get_full_name)")
     token_str = api.client.dumps()
     print(f"  client.dumps() -> str of len {len(token_str)}")
     api2 = Garmin()
-    api2.client.loads(token_str)
-    print("  restored OK — full name:", api2.get_full_name())
-    summary["token_dumps_loads"] = "OK"
+    api2.login(tokenstore=token_str)
+    restored_name = api2.get_full_name()
+    print("  restored OK — full name:", restored_name)
+    summary["token_dumps_loads"] = "OK" if restored_name else "RESTORED but full_name None"
 
     # --- 3. Wellness shapes (the residual gate) -------------------------------------
     _hdr(f"3. WELLNESS shapes para {test_day}")
@@ -119,7 +160,12 @@ def main() -> int:
               _j({k: a0.get(k) for k in ("activityId", "activityName", "startTimeGMT")}))
         data = api.download_activity(a0["activityId"], dl_fmt=Garmin.ActivityDownloadFormat.ORIGINAL)
         print(f"  download_activity ORIGINAL -> {len(data)} bytes (header: {data[:12]!r})")
-        summary["activities"] = f"OK ({len(acts)} found)"
+        from app.services.garmin.client import _extract_fit_from_original
+        fit = _extract_fit_from_original(data)
+        fit_ok = fit[8:12] == b".FIT"
+        print(f"  _extract_fit_from_original -> {len(fit)} bytes "
+              f"(header: {fit[:12]!r}, .FIT magic: {fit_ok})")
+        summary["activities"] = f"OK ({len(acts)} found, fit_magic={fit_ok})"
     else:
         summary["activities"] = "no activities in last 7d"
 

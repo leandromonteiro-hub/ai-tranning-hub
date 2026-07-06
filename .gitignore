@@ -35,3 +35,7 @@ docs/atletas/*-perfil.md
 
 # Local-only docker compose port remap (per-developer host ports)
 docker-compose.override.yml
+
+# Garmin pilot smoke-test artifacts (session token / MFA code drop file)
+backend/.garmin_token
+backend/.garmin_mfa

@@ -3,6 +3,8 @@ place that imports ``garminconnect``. Everything else depends on this Protocol,
 so the whole system is testable offline with FakeGarminClient."""
 from __future__ import annotations
 
+import io
+import zipfile
 from datetime import date, datetime, timezone
 from typing import Protocol
 
@@ -138,6 +140,19 @@ def _build_garmin_workout_dict(sw: StructuredWorkout) -> dict:
     return workout.to_dict()
 
 
+def _extract_fit_from_original(data: bytes) -> bytes:
+    """Unwrap the .fit from Garmin's ORIGINAL download, which is a ZIP archive
+    (verified live 2026-07-06). Non-zip bytes pass through unchanged."""
+    if not data.startswith(b"PK\x03\x04"):
+        return data
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        names = zf.namelist()
+        fit = next((n for n in names if n.lower().endswith(".fit")), None)
+        if fit is None:
+            raise GarminSyncError(f"ORIGINAL zip has no .fit member: {names}")
+        return zf.read(fit)
+
+
 # --- Concrete adapter (the ONLY garminconnect import in the codebase) --------
 # VERIFICATION NOTE (2026-06-30, garminconnect 0.3.6 introspection):
 # Method NAMES are now verified:
@@ -149,14 +164,22 @@ def _build_garmin_workout_dict(sw: StructuredWorkout) -> dict:
 # There is NO garth attribute and NO refresh_oauth2 / delete_workout.
 # The token object is garmin.client (garminconnect.client.Client).
 #
-# RESIDUAL pilot-gate items (response-body shapes, unverified against a live account):
-#   - schedule_workout() response: key for the scheduled-workout id
-#     (tried: workoutScheduleId, scheduleId, id; falls back to workoutId).
-#   - get_hrv_data(): hrvSummary.lastNightAvg field path.
-#   - get_sleep_data(): dailySleepDTO.* field paths.
-#   - get_rhr_day(): allMetrics.metricsMap.WELLNESS_RESTING_HEART_RATE path.
-#   - get_body_battery(): list-of-dicts with "charged" key.
-# Confirm these during first pilot run against a real Garmin account.
+# LIVE-ACCOUNT VERIFICATION (2026-07-06, pilot read-only run):
+#   - Token dump: client.dumps() OK. Restore MUST be Garmin().login(tokenstore=str)
+#     — client.loads() alone skips _load_profile_and_settings(), display_name stays
+#     None and every wellness call raises. get_full_name() is a cached attribute
+#     (no network), useless as a token health-check.
+#   - download_activity(ORIGINAL) returns a ZIP wrapping the .fit (PK header) —
+#     unwrapped by _extract_fit_from_original before handing to ingestion.
+#   - get_rhr_day(): allMetrics.metricsMap.WELLNESS_RESTING_HEART_RATE[0].value OK.
+#   - get_sleep_data()/get_body_battery(): field paths match the live shapes
+#     (dailySleepDTO.*, list-of-dicts "charged"); values were null on the probed
+#     day (device off overnight) — paths degrade to None as intended.
+#   - get_hrv_data(): returned {} on probed day (no HRV recording); path pending
+#     a day with real HRV data, degrades to None meanwhile.
+#   - schedule_workout() response: scheduled-workout id key CONFIRMED as
+#     "workoutScheduleId" (full push→schedule→unschedule cycle exercised live).
+# Pilot gate CLOSED — no residual items.
 
 
 class RealGarminClient:
@@ -199,10 +222,13 @@ class RealGarminClient:
 
         try:
             self._api = Garmin()
-            self._api.client.loads(token["tokenstore"])
-            # No explicit refresh in 0.3.6 — validate with a cheap authed call so an
-            # expired/invalid token surfaces now as GarminAuthError (-> needs_reauth).
-            self._api.get_full_name()
+            # login(tokenstore=<str>) — NOT client.loads() — is the correct restore
+            # path (verified live 2026-07-06): it loads the token, refreshes it when
+            # near expiry, and fetches profile/settings, populating display_name,
+            # which the wellness endpoint URLs embed. client.loads() alone leaves
+            # display_name unset and every wellness call fails. An invalid/expired
+            # token surfaces here (profile fetch is a real authed call) => reauth.
+            self._api.login(tokenstore=token["tokenstore"])
         except Exception as exc:  # noqa: BLE001 — any restore/validate failure => reauth
             raise GarminAuthError(f"token restore failed: {exc}") from exc
 
@@ -234,11 +260,12 @@ class RealGarminClient:
         from garminconnect import Garmin
 
         try:
-            return self._api.download_activity(
+            data = self._api.download_activity(
                 activity_id, dl_fmt=Garmin.ActivityDownloadFormat.ORIGINAL
             )
         except Exception as exc:  # noqa: BLE001
             raise GarminSyncError(f"download failed: {exc}") from exc
+        return _extract_fit_from_original(data)
 
     def get_wellness(self, day: date) -> WellnessSnapshot:
         iso = day.isoformat()
