@@ -8,6 +8,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_admin
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import (
     create_access_token,
@@ -21,12 +22,14 @@ from app.models.enums import Role
 from app.repositories.athlete_repo import AthleteRepository
 from app.schemas.auth import (
     CurrentUser,
+    GoogleLoginRequest,
     RefreshRequest,
     RegisterAthleteRequest,
     SignupRequest,
     TokenResponse,
 )
 from app.services.auth import invites
+from app.services.auth.google_verifier import GoogleAuthError, RealGoogleVerifier
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -41,6 +44,55 @@ def _tokens_for(athlete: Athlete) -> TokenResponse:
     )
     refresh = create_refresh_token(subject=str(athlete.id))
     return TokenResponse(access_token=access, refresh_token=refresh)
+
+
+def _new_verifier():
+    """Indireção para os testes injetarem FakeGoogleVerifier."""
+    return RealGoogleVerifier()
+
+
+@router.post("/google", response_model=TokenResponse)
+async def google_login(
+    req: GoogleLoginRequest, db: AsyncSession = Depends(get_db)
+) -> TokenResponse:
+    """Login/cadastro com Google: verifica o ID token no servidor e emite o JWT do app."""
+    if not settings.google_client_id:
+        raise HTTPException(status_code=503, detail="Google SSO is not configured")
+    try:
+        ident = _new_verifier().verify(req.credential)
+    except GoogleAuthError:
+        raise HTTPException(status_code=401, detail="Invalid Google credential")
+
+    repo = AthleteRepository(db)
+    athlete = await repo.get_by_google_sub(ident.sub)
+    if athlete is None:
+        existing = await repo.get_by_email(ident.email)
+        if existing is not None:
+            # Linking: só com email verificado pelo Google.
+            if not ident.email_verified:
+                raise HTTPException(status_code=403, detail="Email do Google não verificado.")
+            existing.google_sub = ident.sub
+            athlete = existing
+        else:
+            if not req.invite_code:
+                raise HTTPException(status_code=403, detail="invite_required")
+            invite = await invites.find_valid(db, req.invite_code)
+            if invite is None:
+                raise HTTPException(status_code=403, detail="invite_invalid")
+            athlete = Athlete(
+                email=ident.email,
+                hashed_password=None,
+                full_name=ident.name,
+                role=Role.ATHLETE,
+                tenant_id=f"tenant_{uuid.uuid4().hex[:12]}",
+                google_sub=ident.sub,
+            )
+            await repo.add(athlete)
+            if not await invites.consume(db, invite.id, athlete.id):
+                raise HTTPException(status_code=403, detail="invite_invalid")
+    if not athlete.is_active:
+        raise HTTPException(status_code=403, detail="Inactive account")
+    return _tokens_for(athlete)
 
 
 @router.post("/login", response_model=TokenResponse)

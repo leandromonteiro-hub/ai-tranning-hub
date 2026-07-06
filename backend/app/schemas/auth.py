@@ -37,6 +37,11 @@ class SignupRequest(BaseModel):
     invite_code: str = Field(min_length=1)
 
 
+class GoogleLoginRequest(BaseModel):
+    credential: str = Field(min_length=1)
+    invite_code: str | None = None
+
+
 class CurrentUser(BaseModel):
     athlete_id: uuid.UUID
     email: str

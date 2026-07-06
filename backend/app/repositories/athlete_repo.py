@@ -25,6 +25,13 @@ class AthleteRepository:
         res = await self.session.execute(stmt)
         return res.scalar_one_or_none()
 
+    async def get_by_google_sub(self, google_sub: str) -> Athlete | None:
+        stmt = select(Athlete).where(
+            Athlete.google_sub == google_sub, Athlete.deleted_at.is_(None)
+        )
+        res = await self.session.execute(stmt)
+        return res.scalar_one_or_none()
+
     async def get(self, athlete_id: uuid.UUID) -> Athlete | None:
         stmt = select(Athlete).where(
             Athlete.id == athlete_id, Athlete.deleted_at.is_(None)
