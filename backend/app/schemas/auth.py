@@ -30,6 +30,13 @@ class RegisterAthleteRequest(BaseModel):
     role: Role = Role.ATHLETE
 
 
+class SignupRequest(BaseModel):
+    full_name: str = Field(min_length=1)
+    email: EmailStr
+    password: str = Field(min_length=8)
+    invite_code: str = Field(min_length=1)
+
+
 class CurrentUser(BaseModel):
     athlete_id: uuid.UUID
     email: str

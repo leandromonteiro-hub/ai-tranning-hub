@@ -43,13 +43,13 @@ def _create_token(
 
 
 def create_access_token(
-    subject: str, role: str, tenant_id: str, athlete_id: str
+    subject: str, role: str, tenant_id: str, athlete_id: str, email: str = ""
 ) -> str:
     return _create_token(
         subject,
         "access",
         timedelta(minutes=settings.access_token_expire_minutes),
-        {"role": role, "tenant_id": tenant_id, "athlete_id": athlete_id},
+        {"role": role, "tenant_id": tenant_id, "athlete_id": athlete_id, "email": email},
     )
 
 

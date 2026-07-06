@@ -17,13 +17,16 @@ from app.core.security import (
     verify_password,
 )
 from app.models.athlete import Athlete
+from app.models.enums import Role
 from app.repositories.athlete_repo import AthleteRepository
 from app.schemas.auth import (
     CurrentUser,
     RefreshRequest,
     RegisterAthleteRequest,
+    SignupRequest,
     TokenResponse,
 )
+from app.services.auth import invites
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -34,6 +37,7 @@ def _tokens_for(athlete: Athlete) -> TokenResponse:
         role=athlete.role.value if hasattr(athlete.role, "value") else str(athlete.role),
         tenant_id=athlete.tenant_id,
         athlete_id=str(athlete.id),
+        email=athlete.email,
     )
     refresh = create_refresh_token(subject=str(athlete.id))
     return TokenResponse(access_token=access, refresh_token=refresh)
@@ -46,6 +50,8 @@ async def login(
 ) -> TokenResponse:
     repo = AthleteRepository(db)
     athlete = await repo.get_by_email(form.username)
+    if athlete and athlete.hashed_password is None:
+        raise HTTPException(status_code=400, detail="Esta conta usa Entrar com Google.")
     if not athlete or not verify_password(form.password, athlete.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
@@ -85,6 +91,29 @@ async def register_athlete(
         tenant_id=f"tenant_{uuid.uuid4().hex[:12]}",
     )
     await repo.add(athlete)
+    return _tokens_for(athlete)
+
+
+@router.post("/signup", response_model=TokenResponse, status_code=201)
+async def signup(req: SignupRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
+    """Auto-cadastro público, gated por código de convite de uso único."""
+    invite = await invites.find_valid(db, req.invite_code)
+    if invite is None:
+        raise HTTPException(status_code=403, detail="invite_invalid")
+    repo = AthleteRepository(db)
+    if await repo.get_by_email(req.email):
+        raise HTTPException(status_code=409, detail="Email already registered")
+    athlete = Athlete(
+        email=req.email,
+        hashed_password=hash_password(req.password),
+        full_name=req.full_name,
+        role=Role.ATHLETE,
+        tenant_id=f"tenant_{uuid.uuid4().hex[:12]}",
+    )
+    await repo.add(athlete)
+    if not await invites.consume(db, invite.id, athlete.id):
+        # corrida: outra transação usou o código entre find_valid e aqui
+        raise HTTPException(status_code=403, detail="invite_invalid")
     return _tokens_for(athlete)
 
 
