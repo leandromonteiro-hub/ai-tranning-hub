@@ -23,6 +23,8 @@ class FakeGarminClient:
         fit_bytes: bytes = b"FIT",
         wellness: dict[date, WellnessSnapshot] | None = None,
         raise_auth_on_resume: bool = False,
+        raise_auth_on_login: bool = False,
+        raise_auth_on_mfa: bool = False,
         raise_auth_on_wellness: bool = False,
         raise_auth_on_push: bool = False,
         raise_sync_on_first_download: bool = False,
@@ -32,6 +34,8 @@ class FakeGarminClient:
         self._fit_bytes = fit_bytes
         self._wellness = wellness or {}
         self._raise_auth_on_resume = raise_auth_on_resume
+        self._raise_auth_on_login = raise_auth_on_login
+        self._raise_auth_on_mfa = raise_auth_on_mfa
         self._raise_auth_on_wellness = raise_auth_on_wellness
         self._raise_auth_on_push = raise_auth_on_push
         self._raise_sync_on_first_download = raise_sync_on_first_download
@@ -43,11 +47,15 @@ class FakeGarminClient:
         self._download_count = 0
 
     def login(self, email: str, password: str) -> LoginResult:
+        if self._raise_auth_on_login:
+            raise GarminAuthError("bad garmin credentials")
         if self._needs_mfa:
             return NeedsMfa(client_state={"stage": "mfa", "email": email})
         return Connected(token={"fake": "token"})
 
     def resume_mfa(self, client_state: dict, mfa_code: str) -> dict:
+        if self._raise_auth_on_mfa:
+            raise GarminAuthError("bad mfa code")
         return {"fake": "token"}
 
     def resume(self, token: dict) -> None:

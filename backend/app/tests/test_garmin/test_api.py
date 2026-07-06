@@ -86,3 +86,25 @@ async def test_connect_mfa_expired_returns_409(session, two_athletes, client_fac
         r2 = await ac.post("/api/v1/garmin/connect/mfa", json={"code": "123456"})
         assert r2.status_code == 409
         assert "expir" in r2.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_connect_bad_credentials_returns_400(client_factory):
+    """Credencial Garmin inválida é 400 — 401 é reservado à sessão do app
+    (o apiFetch do frontend desloga o usuário em qualquer 401)."""
+    fake = FakeGarminClient(raise_auth_on_login=True)
+    async with client_factory(fake) as ac:
+        r = await ac.post("/api/v1/garmin/connect",
+                          json={"email": "e@x.com", "password": "bad"})
+        assert r.status_code == 400
+        assert r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_mfa_bad_code_returns_400(client_factory):
+    fake = FakeGarminClient(needs_mfa=True, raise_auth_on_mfa=True)
+    async with client_factory(fake) as ac:
+        await ac.post("/api/v1/garmin/connect",
+                      json={"email": "e@x.com", "password": "pw"})
+        r = await ac.post("/api/v1/garmin/connect/mfa", json={"code": "000000"})
+        assert r.status_code == 400

@@ -55,7 +55,9 @@ async def connect(
     try:
         result = client.login(body.email, body.password)
     except GarminAuthError as exc:
-        raise HTTPException(status_code=401, detail=str(exc))
+        # 400, não 401: 401 é reservado à sessão do app — o frontend desloga
+        # o usuário em qualquer 401 (ver web/lib/api.ts).
+        raise HTTPException(status_code=400, detail=str(exc))
     if isinstance(result, NeedsMfa):
         conn.mfa_state = token_store.encrypt(result.client_state)
         conn.mfa_expires_at = datetime.now(timezone.utc) + timedelta(minutes=_MFA_TTL_MIN)
@@ -95,7 +97,7 @@ async def connect_mfa(
     try:
         token = client.resume_mfa(client_state, body.code)
     except GarminAuthError as exc:
-        raise HTTPException(status_code=401, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc))
     conn.encrypted_token = token_store.encrypt(token)
     conn.status = GarminConnectionStatus.CONNECTED
     conn.connected_at = datetime.now(timezone.utc)
