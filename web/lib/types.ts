@@ -92,3 +92,13 @@ export type Recommendation = {
   confidence: number | null; confidence_rationale: string | null
   decision: string; created_at: string; evidence: Evidence[]
 }
+
+// --- Garmin Connect ---
+export type GarminStatus = {
+  status: 'AWAITING_MFA' | 'CONNECTED' | 'NEEDS_REAUTH' | 'DISCONNECTED'
+  last_sync_at: string | null
+  needs_reauth: boolean
+  last_error: string | null
+}
+export type GarminConnectResponse = { needs_mfa: boolean; status: string }
+export type GarminSyncResponse = { task_id: string | null }
