@@ -3,6 +3,8 @@ import { FormEvent, useEffect, useRef, useState } from 'react'
 import { Watch } from 'lucide-react'
 import { useGarminStatus } from '@/lib/hooks'
 import { apiFetch } from '@/lib/api'
+import { pollDecision } from '@/lib/jobPoll'
+import type { GarminSyncResponse, JobStatus } from '@/lib/types'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -40,12 +42,48 @@ export function GarminCard() {
   const [busy, setBusy] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
+  type SyncState = 'idle' | 'running' | 'done' | 'failed'
+  const [syncState, setSyncState] = useState<SyncState>('idle')
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false)
+
   function failMessage(status: number, ctx: 'connect' | 'mfa'): string {
     if (status === 400) {
       return ctx === 'connect' ? 'Email ou senha da Garmin inválidos.' : 'Código incorreto ou expirado.'
     }
     if (status === 429) return 'Muitas tentativas — aguarde alguns minutos.'
     return 'Erro ao conectar. Tente novamente.'
+  }
+
+  async function syncNow() {
+    setSyncState('running')
+    try {
+      const res = await apiFetch('garmin/sync', { method: 'POST' })
+      const body = (await res.json()) as GarminSyncResponse
+      if (!res.ok || !body.task_id) { setSyncState('failed'); return }
+      const max = 120 // ~4 min a cada 2 s — o 1º sync do piloto levou 3min18s
+      for (let attempt = 1; attempt <= max; attempt++) {
+        if (cancelled.current) return
+        let state = 'PENDING'
+        try {
+          const r = await apiFetch(`jobs/${body.task_id}`)
+          if (r.ok) state = ((await r.json()) as JobStatus).state
+        } catch { /* trata como PENDING e segue */ }
+        const d = pollDecision(state, attempt, max)
+        if (d === 'done') { setSyncState('done'); await mutate(); return }
+        if (d !== 'continue') { setSyncState('failed'); return }
+        await sleep(2000)
+      }
+    } catch {
+      setSyncState('failed')
+    }
+  }
+
+  async function disconnect() {
+    try {
+      await apiFetch('garmin/disconnect', { method: 'DELETE' })
+      setConfirmingDisconnect(false)
+      await mutate()
+    } catch { /* status revalida no próximo foco */ }
   }
 
   async function connect(e: FormEvent) {
@@ -104,10 +142,28 @@ export function GarminCard() {
             Última sincronização: {fmtLastSync(data.last_sync_at)}. A sincronização
             automática roda diariamente.
           </p>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button">Sincronizar agora</Button>
-            <Button type="button" variant="secondary">Desconectar</Button>
-          </div>
+          {confirmingDisconnect ? (
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-slate-600 dark:text-slate-300">Confirmar desconexão?</span>
+              <Button type="button" variant="secondary" onClick={disconnect}>Sim</Button>
+              <Button type="button" variant="ghost" onClick={() => setConfirmingDisconnect(false)}>Cancelar</Button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" onClick={syncNow} disabled={syncState === 'running'}>
+                {syncState === 'running' ? 'Sincronizando…' : 'Sincronizar agora'}
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => setConfirmingDisconnect(true)}>
+                Desconectar
+              </Button>
+              {syncState === 'done' && <span className="text-sm text-emerald-600">Sincronizado ✓</span>}
+              {syncState === 'failed' && (
+                <span className="text-sm text-red-600">
+                  A sincronização falhou ou está demorando — os dados chegam no sync diário automático.
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </Card>
     )

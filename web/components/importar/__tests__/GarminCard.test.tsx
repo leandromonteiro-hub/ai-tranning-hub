@@ -130,3 +130,65 @@ describe('GarminCard — conectar e MFA', () => {
     expect(screen.getByLabelText('Email da conta Garmin')).toBeInTheDocument()
   })
 })
+
+describe('GarminCard — sincronizar e desconectar', () => {
+  it('sincronizar agora: SUCCESS revalida e mostra confirmação', async () => {
+    const mutate = vi.fn()
+    ;(useGarminStatus as Mock).mockReturnValue({
+      data: statusOf({ status: 'CONNECTED' }), error: undefined, isLoading: false, mutate,
+    })
+    ;(apiFetch as Mock).mockImplementation(async (path: string) => {
+      if (path === 'garmin/sync') return jsonRes({ task_id: 't1' })
+      if (path === 'jobs/t1') return jsonRes({ task_id: 't1', state: 'SUCCESS' })
+      throw new Error(`unexpected ${path}`)
+    })
+    render(<GarminCard />)
+    fireEvent.click(screen.getByRole('button', { name: /Sincronizar agora/ }))
+    expect(await screen.findByText('Sincronizado ✓')).toBeInTheDocument()
+    expect(mutate).toHaveBeenCalled()
+  })
+
+  it('sincronizar agora: FAILURE mostra mensagem de falha', async () => {
+    mockHook({ data: statusOf({ status: 'CONNECTED' }) })
+    ;(apiFetch as Mock).mockImplementation(async (path: string) => {
+      if (path === 'garmin/sync') return jsonRes({ task_id: 't1' })
+      return jsonRes({ task_id: 't1', state: 'FAILURE' })
+    })
+    render(<GarminCard />)
+    fireEvent.click(screen.getByRole('button', { name: /Sincronizar agora/ }))
+    expect(await screen.findByText(/sincronização falhou/)).toBeInTheDocument()
+  })
+
+  it('sincronizar agora: task_id null (broker fora) mostra falha', async () => {
+    mockHook({ data: statusOf({ status: 'CONNECTED' }) })
+    ;(apiFetch as Mock).mockResolvedValue(jsonRes({ task_id: null }))
+    render(<GarminCard />)
+    fireEvent.click(screen.getByRole('button', { name: /Sincronizar agora/ }))
+    expect(await screen.findByText(/sincronização falhou/)).toBeInTheDocument()
+  })
+
+  it('desconectar exige confirmação inline antes do DELETE', async () => {
+    const mutate = vi.fn()
+    ;(useGarminStatus as Mock).mockReturnValue({
+      data: statusOf({ status: 'CONNECTED' }), error: undefined, isLoading: false, mutate,
+    })
+    ;(apiFetch as Mock).mockResolvedValue(jsonRes(null, 204))
+    render(<GarminCard />)
+    fireEvent.click(screen.getByRole('button', { name: /Desconectar/ }))
+    expect(apiFetch).not.toHaveBeenCalled()
+    expect(screen.getByText(/Confirmar desconexão\?/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^Sim$/ }))
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith('garmin/disconnect', expect.objectContaining({ method: 'DELETE' })))
+    expect(mutate).toHaveBeenCalled()
+  })
+
+  it('cancelar desconexão volta aos botões normais sem DELETE', () => {
+    mockHook({ data: statusOf({ status: 'CONNECTED' }) })
+    render(<GarminCard />)
+    fireEvent.click(screen.getByRole('button', { name: /Desconectar/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Cancelar/ }))
+    expect(apiFetch).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /Sincronizar agora/ })).toBeInTheDocument()
+  })
+})
