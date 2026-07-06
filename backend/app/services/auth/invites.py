@@ -5,7 +5,7 @@ import secrets
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.invite import InviteCode
@@ -45,6 +45,17 @@ async def find_valid(session: AsyncSession, code: str) -> InviteCode | None:
     return inv
 
 
-def consume(invite: InviteCode, athlete_id: uuid.UUID) -> None:
-    invite.used_by_athlete_id = athlete_id
-    invite.used_at = datetime.now(timezone.utc)
+async def consume(
+    session: AsyncSession, invite_id: uuid.UUID, athlete_id: uuid.UUID
+) -> bool:
+    """Marca o convite como usado SE ainda estiver livre (UPDATE condicional).
+
+    Retorna False quando outra transação consumiu o código primeiro — o
+    chamador deve tratar como convite inválido.
+    """
+    res = await session.execute(
+        update(InviteCode)
+        .where(InviteCode.id == invite_id, InviteCode.used_at.is_(None))
+        .values(used_by_athlete_id=athlete_id, used_at=datetime.now(timezone.utc))
+    )
+    return res.rowcount == 1

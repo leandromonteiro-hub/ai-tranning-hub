@@ -29,10 +29,16 @@ async def test_create_and_find_valid_is_case_insensitive(session):
 async def test_consume_makes_code_invalid(session, two_athletes):
     a, _ = two_athletes
     (inv,) = await invites.create_invites(session, created_by=None, count=1)
-    invites.consume(inv, a.id)
-    await session.flush()
+    assert await invites.consume(session, inv.id, a.id) is True
     assert await invites.find_valid(session, inv.code) is None
-    assert inv.used_by_athlete_id == a.id and inv.used_at is not None
+
+
+@pytest.mark.asyncio
+async def test_consume_twice_second_returns_false(session, two_athletes):
+    a, b = two_athletes
+    (inv,) = await invites.create_invites(session, created_by=None, count=1)
+    assert await invites.consume(session, inv.id, a.id) is True
+    assert await invites.consume(session, inv.id, b.id) is False
 
 
 @pytest.mark.asyncio
