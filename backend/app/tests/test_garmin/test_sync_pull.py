@@ -1,7 +1,7 @@
 """sync_pull: importa atividades via pipeline real + upsert de wellness; idempotente."""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -11,7 +11,7 @@ from app.repositories.metrics_repo import RecoveryRepository
 from app.repositories.workout_repo import WorkoutRepository
 from app.services.garmin.fake_client import FakeGarminClient
 from app.services.garmin.sync_service import sync_pull
-from app.services.garmin.client import GarminAuthError, GarminSyncError
+from app.services.garmin.client import GarminAuthError
 from app.services.garmin.types import WellnessSnapshot
 from app.tests.conftest import ctx_for
 
@@ -23,13 +23,18 @@ _CSV = (
     b"2026-06-30T06:00:00,3600,30000,200,garmin-act-1\n"
 )
 
+# Datas RELATIVAS a hoje: o 2º pull usa since = last_sync_at - margem, então uma
+# atividade com data fixa sai da janela com o passar dos dias e o teste de
+# idempotência quebra sozinho (aconteceu em 2026-07-03 com datas de 2026-06-30).
+_DAY = datetime.now(timezone.utc).replace(hour=6, minute=0) - timedelta(days=1)
+
 
 def _client():
-    snap = WellnessSnapshot(day=date(2026, 6, 30), hrv_ms=62.0, resting_hr=47,
+    snap = WellnessSnapshot(day=_DAY.date(), hrv_ms=62.0, resting_hr=47,
                             sleep_hours=7.0, sleep_score=78.0, body_battery=66.0)
     return FakeGarminClient(
-        activities=[("garmin-act-1", datetime(2026, 6, 30, 6, tzinfo=timezone.utc))],
-        fit_bytes=_CSV, wellness={date(2026, 6, 30): snap},
+        activities=[("garmin-act-1", _DAY)],
+        fit_bytes=_CSV, wellness={_DAY.date(): snap},
     )
 
 
@@ -41,7 +46,7 @@ async def test_pull_imports_activity_and_wellness(session, two_athletes):
     res = await sync_pull(session, ctx, _client(), a.id, _activity_ext="csv")
     assert res.activities_imported == 1
     assert res.wellness_days == 1
-    rec = await RecoveryRepository(session, ctx).list_recent(date(2026, 6, 1))
+    rec = await RecoveryRepository(session, ctx).list_recent(_DAY.date() - timedelta(days=7))
     assert rec[0].hrv_ms == 62.0
     assert rec[0].recovery_score == 66.0
     assert rec[0].source == "garmin"
@@ -58,7 +63,8 @@ async def test_pull_is_idempotent(session, two_athletes):
     assert res2.activities_imported == 0
     workouts = await WorkoutRepository(session, ctx).list()
     assert len(workouts) == 1  # não duplicou
-    assert len(await RecoveryRepository(session, ctx).list_recent(date(2026, 6, 1))) == 1
+    assert len(await RecoveryRepository(session, ctx)
+               .list_recent(_DAY.date() - timedelta(days=7))) == 1
 
 
 @pytest.mark.asyncio
@@ -109,14 +115,14 @@ async def test_activity_sync_error_skipped_second_imported(session, two_athletes
     a, _ = two_athletes
     ctx = ctx_for(a)
     await GarminConnectionRepository(session, ctx).get_or_create()
-    snap = WellnessSnapshot(day=date(2026, 6, 30))
+    snap = WellnessSnapshot(day=_DAY.date())
     client = FakeGarminClient(
         activities=[
-            ("garmin-act-1", datetime(2026, 6, 30, 6, tzinfo=timezone.utc)),
-            ("garmin-act-2", datetime(2026, 6, 30, 7, tzinfo=timezone.utc)),
+            ("garmin-act-1", _DAY),
+            ("garmin-act-2", _DAY + timedelta(hours=1)),
         ],
         fit_bytes=_CSV,
-        wellness={date(2026, 6, 30): snap},
+        wellness={_DAY.date(): snap},
         raise_sync_on_first_download=True,
     )
     # Must not raise — GarminSyncError is warn-and-continue
