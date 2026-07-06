@@ -68,6 +68,7 @@ export function GarminCard() {
           const r = await apiFetch(`jobs/${body.task_id}`)
           if (r.ok) state = ((await r.json()) as JobStatus).state
         } catch { /* trata como PENDING e segue */ }
+        if (cancelled.current) return
         const d = pollDecision(state, attempt, max)
         if (d === 'done') { setSyncState('done'); await mutate(); return }
         if (d !== 'continue') { setSyncState('failed'); return }
