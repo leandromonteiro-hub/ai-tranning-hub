@@ -191,4 +191,14 @@ describe('GarminCard — sincronizar e desconectar', () => {
     expect(apiFetch).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: /Sincronizar agora/ })).toBeInTheDocument()
   })
+
+  it('desconectar com erro mantém a confirmação e mostra mensagem', async () => {
+    mockHook({ data: statusOf({ status: 'CONNECTED' }) })
+    ;(apiFetch as Mock).mockResolvedValue(jsonRes({ detail: 'boom' }, 500))
+    render(<GarminCard />)
+    fireEvent.click(screen.getByRole('button', { name: /Desconectar/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^Sim$/ }))
+    expect(await screen.findByText('Não foi possível desconectar. Tente novamente.')).toBeInTheDocument()
+    expect(screen.getByText(/Confirmar desconexão\?/)).toBeInTheDocument()
+  })
 })
