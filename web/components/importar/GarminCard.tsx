@@ -45,6 +45,7 @@ export function GarminCard() {
   type SyncState = 'idle' | 'running' | 'done' | 'failed'
   const [syncState, setSyncState] = useState<SyncState>('idle')
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false)
+  const [disconnectError, setDisconnectError] = useState<string | null>(null)
 
   function failMessage(status: number, ctx: 'connect' | 'mfa'): string {
     if (status === 400) {
@@ -81,10 +82,14 @@ export function GarminCard() {
 
   async function disconnect() {
     try {
-      await apiFetch('garmin/disconnect', { method: 'DELETE' })
+      const res = await apiFetch('garmin/disconnect', { method: 'DELETE' })
+      if (!res.ok) { setDisconnectError('Não foi possível desconectar. Tente novamente.'); return }
       setConfirmingDisconnect(false)
+      setDisconnectError(null)
       await mutate()
-    } catch { /* status revalida no próximo foco */ }
+    } catch {
+      setDisconnectError('Não foi possível desconectar. Tente novamente.')
+    }
   }
 
   async function connect(e: FormEvent) {
@@ -144,17 +149,20 @@ export function GarminCard() {
             automática roda diariamente.
           </p>
           {confirmingDisconnect ? (
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-slate-600 dark:text-slate-300">Confirmar desconexão?</span>
-              <Button type="button" variant="secondary" onClick={disconnect}>Sim</Button>
-              <Button type="button" variant="ghost" onClick={() => setConfirmingDisconnect(false)}>Cancelar</Button>
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-slate-600 dark:text-slate-300">Confirmar desconexão?</span>
+                <Button type="button" variant="secondary" onClick={disconnect}>Sim</Button>
+                <Button type="button" variant="ghost" onClick={() => { setConfirmingDisconnect(false); setDisconnectError(null) }}>Cancelar</Button>
+              </div>
+              {disconnectError && <span className="text-red-600">{disconnectError}</span>}
             </div>
           ) : (
             <div className="flex flex-wrap items-center gap-2">
               <Button type="button" onClick={syncNow} disabled={syncState === 'running'}>
                 {syncState === 'running' ? 'Sincronizando…' : 'Sincronizar agora'}
               </Button>
-              <Button type="button" variant="secondary" onClick={() => setConfirmingDisconnect(true)}>
+              <Button type="button" variant="secondary" onClick={() => { setConfirmingDisconnect(true); setDisconnectError(null) }}>
                 Desconectar
               </Button>
               {syncState === 'done' && <span className="text-sm text-emerald-600">Sincronizado ✓</span>}
