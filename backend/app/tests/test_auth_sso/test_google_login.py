@@ -129,6 +129,23 @@ async def test_invalid_credential_401(client_and_maker, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_unverified_email_cannot_create_account(client_and_maker, monkeypatch):
+    client, maker = client_and_maker
+    unverified = GoogleIdentity(sub="g-77", email="novo77@gmail.com", email_verified=False, name="N")
+    _use_verifier(monkeypatch, FakeGoogleVerifier(identity=unverified))
+    async with maker() as s:
+        (inv,) = await invites.create_invites(s, created_by=None, count=1)
+        code = inv.code
+        await s.commit()
+    r = await client.post("/api/v1/auth/google",
+                          json={"credential": "tok", "invite_code": code})
+    assert r.status_code == 403
+    # convite NÃO foi consumido
+    async with maker() as s:
+        assert await invites.find_valid(s, code) is not None
+
+
+@pytest.mark.asyncio
 async def test_feature_off_503(client_and_maker, monkeypatch):
     client, _ = client_and_maker
     monkeypatch.setattr("app.core.config.settings.google_client_id", "")
