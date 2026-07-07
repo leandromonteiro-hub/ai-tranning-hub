@@ -1,6 +1,7 @@
 "use client";
 import { nameById } from '@/lib/admin'
 import { useAdminAthletes, useAdminFeedback, useAdminUsage } from '@/lib/hooks'
+import { InvitesSection } from '@/components/admin/InvitesSection'
 import { Card } from '@/components/ui/Card'
 
 function Metric({ label, value }: { label: string; value: string | number }) {
@@ -37,6 +38,8 @@ export function AdminView() {
   return (
     <div className="space-y-5">
       <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">📋 Painel do treinador — validação</h1>
+
+      <InvitesSection />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <Metric label="Atletas" value={u?.athletes ?? '—'} />
