@@ -1,11 +1,11 @@
 "use client";
 import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { Upload } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { pollDecision } from '@/lib/jobPoll'
 import type { JobStatus, UploadResponse } from '@/lib/types'
 import { Card } from '@/components/ui/Card'
-import { GarminCard } from '@/components/importar/GarminCard'
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 type ProfileState = 'idle' | 'polling' | 'done' | 'failed' | 'giveup'
@@ -69,7 +69,11 @@ export function ImportarView() {
     <div className="space-y-5">
       <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">📥 Importar treinos</h1>
 
-      <GarminCard />
+      <p className="text-sm text-slate-500">
+        Conecte um dispositivo em{' '}
+        <Link href="/conexoes" className="font-medium text-blue-600 underline">Conexões</Link>{' '}
+        para importar treinos automaticamente.
+      </p>
 
       <Card title="Enviar arquivos (CSV TrainingPeaks, FIT, TCX, GPX)">
         <div className="space-y-3">

@@ -1,10 +1,6 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { ImportarView } from '@/components/importar/ImportarView'
-
-vi.mock('@/components/importar/GarminCard', () => ({
-  GarminCard: () => <div data-testid="garmin-card" />,
-}))
 
 describe('ImportarView', () => {
   it('renderiza o título e o botão Enviar desabilitado sem arquivos', () => {
@@ -13,8 +9,13 @@ describe('ImportarView', () => {
     expect(screen.getByRole('button', { name: /Enviar/ })).toBeDisabled()
   })
 
-  it('renderiza o card de conexão Garmin', () => {
+  it('não renderiza mais o card do Garmin (mudou para Conexões)', () => {
     render(<ImportarView />)
-    expect(screen.getByTestId('garmin-card')).toBeInTheDocument()
+    expect(screen.queryByTestId('garmin-card')).not.toBeInTheDocument()
+  })
+
+  it('tem um link para a página Conexões', () => {
+    render(<ImportarView />)
+    expect(screen.getByRole('link', { name: /Conexões/ })).toHaveAttribute('href', '/conexoes')
   })
 })
