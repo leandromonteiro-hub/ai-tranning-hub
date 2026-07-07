@@ -13,9 +13,10 @@ const r = Math.round
 const SIGN = (n: number) => (n > 0 ? `+${n}` : String(n))
 
 function hhmm(secs: number | null | undefined): string {
-  if (!secs) return '—'
-  const h = Math.floor(secs / 3600)
-  const m = Math.round((secs % 3600) / 60)
+  if (secs == null) return '—'
+  let h = Math.floor(secs / 3600)
+  let m = Math.round((secs % 3600) / 60)
+  if (m === 60) { h += 1; m = 0 }
   return h > 0 ? `${h}h${String(m).padStart(2, '0')}` : `${m}min`
 }
 
