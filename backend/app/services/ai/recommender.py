@@ -19,10 +19,15 @@ from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datetime import timedelta
+
+from sqlalchemy import select
+
 from app.core.logging import get_logger
 from app.core.tenant import TenantContext
 from app.models.ai import AiRecommendation, LlmCallLog
 from app.models.enums import BlockType, RecommendationDecision, RiskLevel
+from app.models.workout import WorkoutCompleted
 from app.repositories.ai_repo import RecommendationRepository
 from app.repositories.metrics_repo import FtpRepository
 from app.repositories.plan_repo import TrainingWeekRepository
@@ -33,6 +38,10 @@ from app.services.ai.safety_validator import evaluate_safety
 from app.services.knowledge.embedder import embed_text
 from app.services.workout import analysis as workout_analysis
 from app.services.workout.builder import build_for, workout_type_for
+from app.services.workout.methodology_builder import (
+    build_methodology_workout,
+    typical_duration_for,
+)
 from app.services.workout.model import StructuredWorkout
 from app.services.planning import workout_adjuster
 
@@ -76,6 +85,27 @@ async def generate_recommendation(
         # Deterministic breakdown (total time, rest times, IF, TSS) for the athlete.
         workout_description = workout_analysis.describe(workout)
 
+    # Methodology workout (reverse-engineered from athlete's historical data).
+    methodology_workout = None
+    methodology_workout_description = None
+    seed = (profile.twin_seed if profile is not None else None) or {}
+    split = seed.get("intensity_split")
+    if ftp_watts and split:
+        # Duração típica: mediana das durações dos treinos concluídos nos últimos 90d.
+        since = target_date - timedelta(days=90)
+        rows = await session.execute(
+            select(WorkoutCompleted.duration_s).where(
+                WorkoutCompleted.athlete_id == athlete_id,
+                WorkoutCompleted.workout_date >= since,
+                WorkoutCompleted.deleted_at.is_(None),
+            )
+        )
+        durations = [int(d) for (d,) in rows.all() if d]
+        typical_s = typical_duration_for(durations, block)
+        mw = build_methodology_workout(split, block, ftp_watts, typical_s, safety.risk_level)
+        methodology_workout = mw.model_dump(mode="json")
+        methodology_workout_description = workout_analysis.describe(mw)
+
     # 3. Evidence + knowledge context
     evidence_items = await evidence_builder.collect_evidence(
         session, ctx, athlete_id, as_of=target_date
@@ -113,6 +143,7 @@ async def generate_recommendation(
         profile=profile_context.profile_summary(profile),
         methodology=methodology,
         feedback=feedback_text,
+        methodology_workout=methodology_workout_description or "n/d",
         question=query if not safety.block_original else (
             query + "\n\nNOTE: guardrails flagged HIGH risk — you MUST recommend a "
             "conservative recovery-oriented alternative only."
@@ -154,6 +185,8 @@ async def generate_recommendation(
             "template_version": template_version,
             "structured_workout": structured_workout,
             "workout_description": workout_description,
+            "methodology_workout": methodology_workout,
+            "methodology_workout_description": methodology_workout_description,
             "signals": signals,
         },
         risk_level=safety.risk_level,
@@ -230,6 +263,7 @@ async def generate_day_adjustment(
         profile=profile_context.profile_summary(profile),
         methodology=methodology,
         feedback=feedback_text,
+        methodology_workout="n/d",
         question=question,
     )
     client = LlmClient()

@@ -38,6 +38,14 @@ Athlete feedback on recent recommendations (respect what worked; adjust what
 was rated poorly — never promise results, never override the safety guardrail):
 {feedback}
 
+Traditional-method workout (what this athlete's own historical methodology would
+prescribe today — reverse-engineered from their real training):
+{methodology_workout}
+
+When you write the recommendation, explicitly CONTRAST your recommended session
+with this traditional-method one: name what the traditional method would do, then
+what you recommend and WHY it differs (or say plainly if they coincide today).
+
 Athlete question / request:
 {question}
 
@@ -54,10 +62,12 @@ periodization, power profile, experience, goals, availability, injuries).
 def render_daily_workout(
     twin: str, safety: str, evidence: str, knowledge: str, question: str,
     profile: str = "n/d", methodology: str = "n/d", feedback: str = "n/d",
+    methodology_workout: str = "n/d",
 ) -> str:
     return DAILY_WORKOUT_TEMPLATE.format(
         profile=profile, methodology=methodology, twin=twin, safety=safety,
         evidence=evidence, knowledge=knowledge, feedback=feedback,
+        methodology_workout=methodology_workout,
         question=question or "Recommend today's workout.",
     )
 
@@ -68,5 +78,5 @@ def template_hash(template: str) -> str:
 
 # Registry of active templates (name -> (version, body)).
 ACTIVE_TEMPLATES = {
-    "daily_workout": (4, DAILY_WORKOUT_TEMPLATE),
+    "daily_workout": (5, DAILY_WORKOUT_TEMPLATE),
 }

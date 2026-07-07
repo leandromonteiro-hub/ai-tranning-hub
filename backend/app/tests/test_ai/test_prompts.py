@@ -25,8 +25,9 @@ def test_render_methodology_defaults_to_nd():
 
 def test_active_template_version_bumped():
     version, body = prompts.ACTIVE_TEMPLATES["daily_workout"]
-    assert version == 4
+    assert version == 5
     assert "{methodology}" in body
+    assert "{methodology_workout}" in body
 
 
 def test_render_includes_feedback_section():
@@ -38,7 +39,7 @@ def test_render_includes_feedback_section():
     )
     assert "Feedback recente (3 avaliações, nota média 4.0)" in out
     assert "{feedback}" not in out          # placeholder preenchido
-    assert prompts.ACTIVE_TEMPLATES["daily_workout"][0] == 4
+    assert prompts.ACTIVE_TEMPLATES["daily_workout"][0] == 5
 
 
 def test_render_feedback_defaults_to_nd():
