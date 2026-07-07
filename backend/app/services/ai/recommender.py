@@ -97,6 +97,7 @@ async def generate_recommendation(
             select(WorkoutCompleted.duration_s).where(
                 WorkoutCompleted.athlete_id == athlete_id,
                 WorkoutCompleted.workout_date >= since,
+                WorkoutCompleted.workout_date <= target_date,
                 WorkoutCompleted.deleted_at.is_(None),
             )
         )
