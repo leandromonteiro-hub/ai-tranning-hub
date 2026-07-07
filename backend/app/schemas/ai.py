@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -47,6 +48,7 @@ class DecisionRequest(BaseModel):
     decision: RecommendationDecision
     modified_payload: dict | None = None
     comment: str | None = None
+    chosen_variant: Literal["ai", "methodology"] = "ai"
 
 
 class FeedbackRequest(BaseModel):
