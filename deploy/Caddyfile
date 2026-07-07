@@ -1,0 +1,6 @@
+# O endereço vem do .env (SITE_ADDRESS), ex.: 62-171-128-103.sslip.io
+# Trocar por um domínio próprio depois é só mudar a env e `docker compose restart caddy`.
+{$SITE_ADDRESS} {
+	encode gzip
+	reverse_proxy web:3000
+}
