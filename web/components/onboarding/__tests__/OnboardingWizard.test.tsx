@@ -44,6 +44,7 @@ describe('OnboardingWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: /Começar a treinar/ }))
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith('auth/me/complete-onboarding', expect.objectContaining({ method: 'POST' })))
+    await waitFor(() => expect(window.location.href).toBe('/'))
     Object.defineProperty(window, 'location', { value: origLocation, writable: true })
   })
 })
