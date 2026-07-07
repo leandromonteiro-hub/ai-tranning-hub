@@ -42,4 +42,13 @@ describe('LoginPage', () => {
     capturedOnCredential!('tok-google')
     await waitFor(() => expect(push).toHaveBeenCalledWith('/'))
   })
+
+  it('admin também vai para / (landing unificada)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonRes({ ok: true, role: 'ADMIN' })))
+    render(<LoginPage />)
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'a@b.c' } })
+    fireEvent.change(screen.getByLabelText('Senha'), { target: { value: 'x' } })
+    fireEvent.click(screen.getByRole('button', { name: /Entrar/ }))
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/'))
+  })
 })
