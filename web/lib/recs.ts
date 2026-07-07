@@ -40,3 +40,12 @@ export function workoutDescription(payload: Record<string, unknown> | null): str
 export function hasStructured(payload: Record<string, unknown> | null): boolean {
   return !!payload?.structured_workout
 }
+
+export function methodologyWorkoutDescription(payload: Record<string, unknown> | null): string | null {
+  const d = payload?.methodology_workout_description
+  return typeof d === 'string' && d.trim() ? d : null
+}
+
+export function hasMethodologyWorkout(payload: Record<string, unknown> | null): boolean {
+  return !!payload?.methodology_workout
+}

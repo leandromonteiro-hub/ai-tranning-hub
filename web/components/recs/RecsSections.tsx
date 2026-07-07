@@ -1,7 +1,9 @@
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { formReading } from '@/lib/formState'
-import { feedbackLine, hasStructured, riskBadge, workoutDescription, type RecSignals } from '@/lib/recs'
+import { feedbackLine, hasStructured, riskBadge, workoutDescription, methodologyWorkoutDescription, hasMethodologyWorkout, type RecSignals } from '@/lib/recs'
+import { apiFetch } from '@/lib/api'
+import { useState } from 'react'
 import type { Recommendation } from '@/lib/types'
 
 const round = Math.round
@@ -111,5 +113,80 @@ export function StructuredWorkout({ rec }: { rec: Recommendation }) {
         </div>
       )}
     </Card>
+  )
+}
+
+function WorkoutColumn({
+  title, desc, hasDl, recId, variant, onUse, busy,
+}: {
+  title: string; desc: string | null; hasDl: boolean; recId: string
+  variant: 'ai' | 'methodology'; onUse: () => void; busy: boolean
+}) {
+  return (
+    <Card title={title}>
+      {desc && (
+        <pre className="overflow-x-auto rounded-lg bg-slate-50 p-3 text-xs text-slate-700 dark:bg-slate-800/60 dark:text-slate-200">{desc}</pre>
+      )}
+      {hasDl && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {[['zwo', 'TrainingPeaks'], ['fit', 'dispositivo']].map(([ext, hint]) => (
+            <a
+              key={ext}
+              href={`/api/proxy/recommendations/${recId}/export.${ext}?variant=${variant}`}
+              download={`treino_${variant}_${recId.slice(0, 8)}.${ext}`}
+              className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              ⬇️ .{ext} ({hint})
+            </a>
+          ))}
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={onUse}
+        disabled={busy}
+        className="mt-3 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+      >
+        Usar este
+      </button>
+    </Card>
+  )
+}
+
+export function ComparativeWorkouts({ rec, onChosen }: { rec: Recommendation; onChosen: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const aiDesc = workoutDescription(rec.payload)
+  const aiHas = hasStructured(rec.payload)
+  const tradDesc = methodologyWorkoutDescription(rec.payload)
+  const tradHas = hasMethodologyWorkout(rec.payload)
+
+  async function choose(variant: 'ai' | 'methodology') {
+    setBusy(true)
+    try {
+      await apiFetch(`recommendations/${rec.id}/decision`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision: 'ACCEPTED', chosen_variant: variant }),
+      })
+      onChosen()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!tradHas) {
+    // Compat: sem treino tradicional -> um card só (comportamento antigo).
+    if (!aiDesc && !aiHas) return null
+    return (
+      <div className="grid grid-cols-1 gap-4">
+        <WorkoutColumn title="🏋️ Treino" desc={aiDesc} hasDl={aiHas} recId={rec.id} variant="ai" onUse={() => choose('ai')} busy={busy} />
+      </div>
+    )
+  }
+  return (
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <WorkoutColumn title="🏛️ Método tradicional" desc={tradDesc} hasDl={tradHas} recId={rec.id} variant="methodology" onUse={() => choose('methodology')} busy={busy} />
+      <WorkoutColumn title="🤖 Recomendação da IA" desc={aiDesc} hasDl={aiHas} recId={rec.id} variant="ai" onUse={() => choose('ai')} busy={busy} />
+    </div>
   )
 }
