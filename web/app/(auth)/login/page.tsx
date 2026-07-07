@@ -26,8 +26,8 @@ export default function LoginPage() {
     });
     setLoading(false);
     if (res.ok) {
-      const { role } = await res.json();
-      router.push(role === "ADMIN" ? "/admin" : "/");
+      await res.json();
+      router.push("/");
       router.refresh();
     } else {
       setError("Falha no login. Verifique email e senha.");
@@ -44,8 +44,8 @@ export default function LoginPage() {
     });
     setLoading(false);
     if (res.ok) {
-      const { role } = await res.json();
-      router.push(role === "ADMIN" ? "/admin" : "/");
+      await res.json();
+      router.push("/");
       router.refresh();
       return;
     }
