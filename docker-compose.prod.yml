@@ -1,0 +1,117 @@
+# Produção (VPS): Caddy na frente com HTTPS automático; Postgres/Redis SEM portas
+# no host; sem Streamlit legado; sem DEV_AUTO_LOGIN; worker + beat separados.
+# Uso: docker compose -f docker-compose.prod.yml up -d --build
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: aath_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: aath_redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aath_api
+    restart: unless-stopped
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aath_worker
+    restart: unless-stopped
+    command: celery -A app.jobs.celery_app.celery worker --loglevel=INFO
+    env_file: .env
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.jobs.celery_app.celery inspect ping -t 5 | grep -q pong || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # O beat agenda o sync diário do Garmin (garmin_beat_sync_all). Em dev ele não
+  # existe — o schedule em celery_app.py só dispara com este processo rodando.
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aath_beat
+    restart: unless-stopped
+    command: celery -A app.jobs.celery_app.celery beat --loglevel=INFO
+    env_file: .env
+    healthcheck:
+      disable: true
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./web
+      args:
+        # NEXT_PUBLIC_* é embutido no bundle no BUILD — mudar exige rebuild do web.
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
+    container_name: aath_web
+    restart: unless-stopped
+    environment:
+      - API_BASE_URL=http://api:8000/api/v1
+    depends_on:
+      - api
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: aath_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      # Domínio público servido pelo Caddy (HTTPS automático via Let's Encrypt).
+      SITE_ADDRESS: ${SITE_ADDRESS}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
