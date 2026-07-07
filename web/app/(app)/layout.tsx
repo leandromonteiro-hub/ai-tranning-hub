@@ -18,6 +18,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     // backend indisponível — segue com nome vazio; middleware já garantiu o cookie
   }
 
+  // Gate de onboarding: atleta sem wizard concluído vai para /bem-vindo.
+  let needsOnboarding = false;
+  try {
+    const meRes = await fetch(resolveApiUrl("auth/me"), {
+      headers: { Authorization: `Bearer ${session.token}` },
+      cache: "no-store",
+    });
+    if (meRes.ok) needsOnboarding = (await meRes.json()).onboarding_completed === false;
+  } catch {
+    // backend indisponível — não bloqueia; o gate reavalia na próxima navegação
+  }
+  if (needsOnboarding) redirect("/bem-vindo");
+
   return (
     <AppShell role={session.role} userName={userName}>
       {children}
