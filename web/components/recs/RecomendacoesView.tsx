@@ -7,7 +7,7 @@ import { signalsOf } from '@/lib/recs'
 import type { Recommendation } from '@/lib/types'
 import { Card } from '@/components/ui/Card'
 import { FeedbackForm } from '@/components/recs/FeedbackForm'
-import { RationalePanel, RiskHeader, SignalsPanel, StructuredWorkout } from '@/components/recs/RecsSections'
+import { RationalePanel, RiskHeader, SignalsPanel, ComparativeWorkouts } from '@/components/recs/RecsSections'
 
 function mostRecent(recs: Recommendation[] | undefined): Recommendation | null {
   if (!recs || recs.length === 0) return null
@@ -78,7 +78,7 @@ export function RecomendacoesView() {
           <RiskHeader rec={rec} />
           <SignalsPanel signals={signalsOf(rec.payload)} />
           <RationalePanel rec={rec} />
-          <StructuredWorkout rec={rec} />
+          <ComparativeWorkouts rec={rec} onChosen={() => void mutate()} />
           <FeedbackForm key={rec.id} recId={rec.id} />
         </>
       )}
