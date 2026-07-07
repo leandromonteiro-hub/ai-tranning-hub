@@ -86,13 +86,16 @@ async def _do_push_recommendation(
         if conn is None or conn.status != GarminConnectionStatus.CONNECTED:
             return {"status": "skipped", "reason": "not_connected"}
 
-        if not (rec.payload or {}).get("structured_workout"):
+        variant = (rec.payload or {}).get("chosen_variant", "ai")
+        key = "methodology_workout" if variant == "methodology" else "structured_workout"
+        sw_data = (rec.payload or {}).get(key)
+        if not sw_data:
             return {"status": "skipped", "reason": "no_structured_workout"}
 
         if rec.target_date is None:
             return {"status": "skipped", "reason": "no_target_date"}
 
-        sw = StructuredWorkout.model_validate(rec.payload["structured_workout"])
+        sw = StructuredWorkout.model_validate(sw_data)
         try:
             wid = await sync_push(session, ctx, client_factory(), aid, sw, rec.target_date)
         except GarminAuthError:

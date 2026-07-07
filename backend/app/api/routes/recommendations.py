@@ -153,13 +153,19 @@ async def get_recommendation(
 @router.get("/{rec_id}/export.fit")
 async def export_recommendation_fit(
     rec_id: uuid.UUID,
+    variant: str = "ai",
     ctx: TenantContext = Depends(get_tenant),
     db: AsyncSession = Depends(get_db),
 ):
-    """Download the recommendation's structured workout as a Garmin FIT file."""
+    """Download the recommendation's structured workout as a Garmin FIT file.
+
+    ``variant`` selects which workout to export: "ai" (default, structured_workout)
+    or "methodology" (methodology_workout, the traditional-method comparison).
+    """
     repo = RecommendationRepository(db, ctx)
     rec = await repo.get(rec_id)
-    sw_data = (rec.payload or {}).get("structured_workout") if rec else None
+    key = "methodology_workout" if variant == "methodology" else "structured_workout"
+    sw_data = (rec.payload or {}).get(key) if rec else None
     if not sw_data:
         raise HTTPException(status_code=404, detail="No structured workout for this recommendation")
     workout = StructuredWorkout.model_validate(sw_data)
@@ -169,13 +175,19 @@ async def export_recommendation_fit(
 @router.get("/{rec_id}/export.zwo")
 async def export_recommendation_zwo(
     rec_id: uuid.UUID,
+    variant: str = "ai",
     ctx: TenantContext = Depends(get_tenant),
     db: AsyncSession = Depends(get_db),
 ):
-    """Download the recommendation's structured workout as a Zwift .zwo (TrainingPeaks import)."""
+    """Download the recommendation's structured workout as a Zwift .zwo (TrainingPeaks import).
+
+    ``variant`` selects which workout to export: "ai" (default, structured_workout)
+    or "methodology" (methodology_workout, the traditional-method comparison).
+    """
     repo = RecommendationRepository(db, ctx)
     rec = await repo.get(rec_id)
-    sw_data = (rec.payload or {}).get("structured_workout") if rec else None
+    key = "methodology_workout" if variant == "methodology" else "structured_workout"
+    sw_data = (rec.payload or {}).get(key) if rec else None
     if not sw_data:
         raise HTTPException(status_code=404, detail="No structured workout for this recommendation")
     return _zwo_response(StructuredWorkout.model_validate(sw_data))
@@ -195,6 +207,8 @@ async def record_decision(
         raise HTTPException(status_code=404, detail="Recommendation not found")
 
     rec.decision = body.decision
+    if body.decision == RecommendationDecision.ACCEPTED:
+        rec.payload = {**(rec.payload or {}), "chosen_variant": body.chosen_variant}
     db.add(rec)
     decision_repo = DecisionRepository(db, ctx)
     await decision_repo.add(
