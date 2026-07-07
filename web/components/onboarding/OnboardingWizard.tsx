@@ -84,7 +84,7 @@ export function OnboardingWizard() {
             Conecte seu Garmin (opcional)
           </h1>
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            Importa seus treinos e recuperação automaticamente. Dá para fazer depois na página Importar.
+            Importa seus treinos e recuperação automaticamente. Dá para fazer depois na página Conexões.
           </p>
           <GarminCard />
           <div className="flex gap-2">
