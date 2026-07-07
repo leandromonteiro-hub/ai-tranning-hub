@@ -76,6 +76,8 @@ async def google_login(
             existing.google_sub = ident.sub
             athlete = existing
         else:
+            if not ident.email_verified:
+                raise HTTPException(status_code=403, detail="Email do Google não verificado.")
             if not req.invite_code:
                 raise HTTPException(status_code=403, detail="invite_required")
             invite = await invites.find_valid(db, req.invite_code)
