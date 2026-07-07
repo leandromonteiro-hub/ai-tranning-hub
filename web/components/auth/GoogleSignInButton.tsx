@@ -35,6 +35,10 @@ export function GoogleSignInButton({ onCredential }: { onCredential: (credential
       })
     }
     if (window.google?.accounts?.id) { init(); return }
+    const existing = document.querySelector<HTMLScriptElement>(
+      'script[src="https://accounts.google.com/gsi/client"]',
+    )
+    if (existing) { existing.addEventListener('load', init); return }
     const s = document.createElement('script')
     s.src = 'https://accounts.google.com/gsi/client'
     s.async = true
