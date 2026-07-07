@@ -79,4 +79,14 @@ describe('OverviewView', () => {
     expect(screen.getByText(/123/)).toBeInTheDocument()
     expect(screen.getByText(/Endurance longo hoje/)).toBeInTheDocument()
   })
+
+  it('Semana: duração zero mostra 0min (não "—")', () => {
+    const today = new Date().toISOString().slice(0, 10)
+    setup({ cal: { days: [], weeks: [{
+      week_start: mondayOf(today), ctl: 0, atl: 0, tsb: 0,
+      total_duration_s: 0, total_tss: 0, total_distance_m: 0, total_elevation_m: 0, total_kj: 0,
+    }] } })
+    render(<OverviewView />)
+    expect(screen.getByText('0min')).toBeInTheDocument()
+  })
 })
