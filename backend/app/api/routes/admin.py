@@ -9,12 +9,14 @@ from app.api.deps import require_admin
 from app.core.database import get_db
 from app.models.ai import AiRecommendation, AiRecommendationFeedback
 from app.models.athlete import Athlete
+from app.models.invite import InviteCode
 from app.models.workout import WorkoutCompleted
 from app.repositories.athlete_repo import AthleteRepository
 from app.schemas.ai import FeedbackRead
 from app.schemas.athlete import AthleteRead
-from app.schemas.auth import CurrentUser
+from app.schemas.auth import CurrentUser, InviteCreateRequest, InviteRead
 from app.services.ai import rag
+from app.services.auth import invites
 from app.services.knowledge.embedder import embed_text
 from app.services.knowledge.knowledge_service import (
     ingest_curated_knowledge,
@@ -86,3 +88,29 @@ async def search_knowledge(
     vec = embed_text(q)
     hits = await rag.search_knowledge(db, vec, k=k)
     return [{"chunk": h.chunk_text, "ref_id": str(h.ref_id)} for h in hits]
+
+
+@router.post("/invites", response_model=list[InviteRead], status_code=201)
+async def create_invites(
+    req: InviteCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: CurrentUser = Depends(require_admin),
+):
+    created = await invites.create_invites(db, created_by=admin.athlete_id, count=req.count)
+    await db.commit()
+    return [InviteRead(code=i.code, created_at=i.created_at) for i in created]
+
+
+@router.get("/invites", response_model=list[InviteRead])
+async def list_invites(db: AsyncSession = Depends(get_db)):
+    stmt = (
+        select(InviteCode, Athlete.email)
+        .outerjoin(Athlete, InviteCode.used_by_athlete_id == Athlete.id)
+        .where(InviteCode.deleted_at.is_(None))
+        .order_by(InviteCode.created_at.desc())
+    )
+    rows = (await db.execute(stmt)).all()
+    return [
+        InviteRead(code=i.code, used_by_email=email, used_at=i.used_at, created_at=i.created_at)
+        for i, email in rows
+    ]

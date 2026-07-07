@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -47,3 +48,18 @@ class CurrentUser(BaseModel):
     email: str
     role: Role
     tenant_id: str
+
+
+class MeResponse(CurrentUser):
+    onboarding_completed: bool
+
+
+class InviteCreateRequest(BaseModel):
+    count: int = Field(default=1, ge=1, le=50)
+
+
+class InviteRead(BaseModel):
+    code: str
+    used_by_email: str | None = None
+    used_at: datetime | None = None
+    created_at: datetime
