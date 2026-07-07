@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -23,6 +24,7 @@ from app.repositories.athlete_repo import AthleteRepository
 from app.schemas.auth import (
     CurrentUser,
     GoogleLoginRequest,
+    MeResponse,
     RefreshRequest,
     RegisterAthleteRequest,
     SignupRequest,
@@ -169,6 +171,24 @@ async def signup(req: SignupRequest, db: AsyncSession = Depends(get_db)) -> Toke
     return _tokens_for(athlete)
 
 
-@router.get("/me", response_model=CurrentUser)
-async def me(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
-    return user
+@router.get("/me", response_model=MeResponse)
+async def me(
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> MeResponse:
+    athlete = await AthleteRepository(db).get(user.athlete_id)
+    return MeResponse(
+        **user.model_dump(),
+        onboarding_completed=bool(athlete and athlete.onboarding_completed_at),
+    )
+
+
+@router.post("/me/complete-onboarding", status_code=204)
+async def complete_onboarding(
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    athlete = await AthleteRepository(db).get(user.athlete_id)
+    if athlete is not None and athlete.onboarding_completed_at is None:
+        athlete.onboarding_completed_at = datetime.now(timezone.utc)
+        await db.commit()
