@@ -35,7 +35,9 @@ describe('AdminView', () => {
   })
 
   it('mostra acesso restrito quando a API retorna 403', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('forbidden', { status: 403 }))
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: { 'Content-Type': 'application/json' } })
+    })
     renderView()
     await waitFor(() => expect(screen.getByText(/Acesso restrito/)).toBeInTheDocument())
   })

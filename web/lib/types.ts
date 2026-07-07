@@ -102,3 +102,11 @@ export type GarminStatus = {
 }
 export type GarminConnectResponse = { needs_mfa: boolean; status: string }
 export type GarminSyncResponse = { task_id: string | null }
+
+// --- Convites (admin) ---
+export type Invite = {
+  code: string
+  used_by_email: string | null
+  used_at: string | null
+  created_at: string
+}
