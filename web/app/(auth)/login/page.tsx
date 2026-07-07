@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import { LogIn } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("athlete1@athletehub.example.com");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -31,6 +32,29 @@ export default function LoginPage() {
     } else {
       setError("Falha no login. Verifique email e senha.");
     }
+  }
+
+  async function onGoogle(credential: string) {
+    setLoading(true);
+    setError("");
+    const res = await fetch("/api/auth/google", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credential }),
+    });
+    setLoading(false);
+    if (res.ok) {
+      const { role } = await res.json();
+      router.push(role === "ADMIN" ? "/admin" : "/");
+      router.refresh();
+      return;
+    }
+    const body = await res.json().catch(() => ({ error: "" }));
+    if (res.status === 403 && body.error === "invite_required") {
+      router.push("/cadastro?google=1");
+      return;
+    }
+    setError("Falha no login com Google. Tente novamente.");
   }
 
   return (
@@ -69,6 +93,17 @@ export default function LoginPage() {
                 {loading ? "Entrando..." : "Entrar"}
               </Button>
             </form>
+
+            <div className="mt-6 space-y-4">
+              <div className="flex items-center gap-3 text-xs text-slate-400">
+                <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" /> ou
+                <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+              </div>
+              <GoogleSignInButton onCredential={onGoogle} />
+              <p className="text-center text-sm text-slate-500">
+                Novo por aqui? <a href="/cadastro" className="underline">Criar conta</a>
+              </p>
+            </div>
           </div>
         </div>
       </div>
