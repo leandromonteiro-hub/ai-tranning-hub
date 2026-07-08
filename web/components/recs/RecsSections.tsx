@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/Badge'
 import { formReading } from '@/lib/formState'
 import { feedbackLine, hasStructured, riskBadge, workoutDescription, methodologyWorkoutDescription, hasMethodologyWorkout, type RecSignals } from '@/lib/recs'
 import { apiFetch } from '@/lib/api'
+import { renderMarkdown } from '@/lib/markdown'
 import { useState } from 'react'
 import type { Recommendation } from '@/lib/types'
 
@@ -72,7 +73,12 @@ export function RationalePanel({ rec }: { rec: Recommendation }) {
         <div className="mt-3 space-y-2">
           <Field label="Objetivo fisiológico" value={rec.physiological_objective} />
           <Field label="Relação com o bloco" value={rec.block_relation} />
-          <Field label="Racional" value={rec.rationale} />
+          {rec.rationale && (
+            <div className="text-sm">
+              <div className="mb-1 font-semibold text-slate-700 dark:text-slate-200">Racional</div>
+              {renderMarkdown(rec.rationale)}
+            </div>
+          )}
           <Field label="Se mais cansado" value={rec.adjust_if_tired} />
           <Field label="Se menos tempo" value={rec.adjust_if_less_time} />
           {rec.evidence.length > 0 && (
