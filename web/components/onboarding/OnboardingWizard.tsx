@@ -3,11 +3,12 @@ import { useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import { isAnamneseComplete, missingRequiredFields } from '@/lib/anamnese'
 import { AnamneseView } from '@/components/anamnese/AnamneseView'
+import { FileUploader } from '@/components/importar/FileUploader'
 import { GarminCard } from '@/components/importar/GarminCard'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 
-const STEPS = ['Anamnese', 'Garmin', 'Concluir'] as const
+const STEPS = ['Anamnese', 'Importar histórico', 'Garmin', 'Concluir'] as const
 
 export function OnboardingWizard() {
   const [step, setStep] = useState(0)
@@ -86,12 +87,14 @@ export function OnboardingWizard() {
       {step === 1 && (
         <div className="space-y-4">
           <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">
-            Conecte seu Garmin (opcional)
+            Importe seu histórico (opcional, recomendado)
           </h1>
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            Importa seus treinos e recuperação automaticamente. Dá para fazer depois na página Conexões.
+            Quanto mais histórico você subir — export do TrainingPeaks/Strava ou
+            arquivos FIT —, melhores e mais personalizadas ficam as recomendações.
+            Dá para fazer depois na página Importar.
           </p>
-          <GarminCard />
+          <FileUploader />
           <div className="flex gap-2">
             <Button type="button" onClick={() => setStep(2)}>Continuar</Button>
             <Button type="button" variant="secondary" onClick={() => setStep(2)}>
@@ -102,11 +105,29 @@ export function OnboardingWizard() {
       )}
 
       {step === 2 && (
+        <div className="space-y-4">
+          <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">
+            Conecte seu Garmin (opcional)
+          </h1>
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Mantém seus treinos e recuperação atualizados automaticamente. Dá para fazer depois na página Conexões.
+          </p>
+          <GarminCard />
+          <div className="flex gap-2">
+            <Button type="button" onClick={() => setStep(3)}>Continuar</Button>
+            <Button type="button" variant="secondary" onClick={() => setStep(3)}>
+              Pular por enquanto
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {step === 3 && (
         <Card title="Tudo pronto 🎉">
           <div className="space-y-4">
             <p className="text-sm text-slate-600 dark:text-slate-300">
-              Seu perfil está criado. Importe seus treinos históricos na página Importar
-              para o treinador IA conhecer você mais rápido.
+              Seu perfil está criado. Se ainda não importou seu histórico, faça isso
+              na página Importar para o treinador IA te conhecer mais rápido.
             </p>
             {error && <p className="text-sm text-red-600">{error}</p>}
             <Button type="button" onClick={complete} disabled={busy}>
