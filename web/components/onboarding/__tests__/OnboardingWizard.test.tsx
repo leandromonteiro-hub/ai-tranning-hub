@@ -22,13 +22,18 @@ describe('OnboardingWizard', () => {
     render(<OnboardingWizard />)
     expect(screen.getByTestId('anamnese')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Continuar/ }))
-    expect(await screen.findByText('Salve sua anamnese antes de continuar.')).toBeInTheDocument()
+    expect(await screen.findByText(/Preencha os campos obrigatórios antes de continuar/)).toBeInTheDocument()
     expect(screen.queryByTestId('garmin-card')).not.toBeInTheDocument()
   })
 
   it('passo 1 avança quando o perfil existe; passo 2 é pulável; concluir chama o endpoint', async () => {
     ;(apiFetch as Mock).mockImplementation(async (path: string, init?: RequestInit) => {
-      if (path === 'athletes/me/profile') return jsonRes({ weekly_hours: 8 })
+      if (path === 'athletes/me/profile') return jsonRes({
+        id: 'p', athlete_id: 'a', birth_date: '1990-01-01', sex: 'M', weight_kg: 70,
+        height_cm: 175, max_hr: 185, resting_hr: 50, primary_discipline: 'XCM',
+        years_training: 5, notes: null, goals: 'ultra', weekly_hours: 10, weekly_days: 5,
+        injury_history: null, medical_conditions: null, has_power_meter: true, has_hr_monitor: true,
+      })
       if (path === 'auth/me/complete-onboarding' && init?.method === 'POST') return jsonRes(null, 204)
       throw new Error(`unexpected ${path}`)
     })
