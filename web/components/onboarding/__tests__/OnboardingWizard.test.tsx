@@ -7,6 +7,9 @@ vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }))
 vi.mock('@/components/anamnese/AnamneseView', () => ({
   AnamneseView: () => <div data-testid="anamnese" />,
 }))
+vi.mock('@/components/importar/FileUploader', () => ({
+  FileUploader: () => <div data-testid="file-uploader" />,
+}))
 vi.mock('@/components/importar/GarminCard', () => ({
   GarminCard: () => <div data-testid="garmin-card" />,
 }))
@@ -17,16 +20,28 @@ const jsonRes = (body: unknown, status = 200) =>
 beforeEach(() => vi.clearAllMocks())
 
 describe('OnboardingWizard', () => {
-  it('passo 1 não avança sem perfil salvo', async () => {
-    ;(apiFetch as Mock).mockResolvedValue(jsonRes(null, 200))
+  it('passo 1 (anamnese) não avança com perfil incompleto', async () => {
+    ;(apiFetch as Mock).mockResolvedValue(jsonRes({ birth_date: '1990-01-01' })) // faltam campos
     render(<OnboardingWizard />)
-    expect(screen.getByTestId('anamnese')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Continuar/ }))
-    expect(await screen.findByText(/Preencha os campos obrigatórios antes de continuar/)).toBeInTheDocument()
-    expect(screen.queryByTestId('garmin-card')).not.toBeInTheDocument()
+    expect(await screen.findByText(/Preencha os campos obrigatórios/)).toBeInTheDocument()
+    expect(screen.queryByTestId('file-uploader')).not.toBeInTheDocument()
   })
 
-  it('passo 1 avança quando o perfil existe; passo 2 é pulável; concluir chama o endpoint', async () => {
+  it('anamnese completa → passo Importar histórico (FileUploader), pulável → Garmin', async () => {
+    const complete = {
+      birth_date: '1990-01-01', sex: 'M', weight_kg: 70, height_cm: 175, max_hr: 185,
+      primary_discipline: 'XCM', years_training: 5, goals: 'ultra', weekly_hours: 10,
+    }
+    ;(apiFetch as Mock).mockResolvedValue(jsonRes(complete))
+    render(<OnboardingWizard />)
+    fireEvent.click(screen.getByRole('button', { name: /Continuar/ }))
+    expect(await screen.findByTestId('file-uploader')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Pular por enquanto/ }))
+    expect(screen.getByTestId('garmin-card')).toBeInTheDocument()
+  })
+
+  it('fluxo completo: anamnese → histórico → garmin → concluir', async () => {
     ;(apiFetch as Mock).mockImplementation(async (path: string, init?: RequestInit) => {
       if (path === 'athletes/me/profile') return jsonRes({
         id: 'p', athlete_id: 'a', birth_date: '1990-01-01', sex: 'M', weight_kg: 70,
@@ -43,7 +58,9 @@ describe('OnboardingWizard', () => {
     })
     render(<OnboardingWizard />)
     fireEvent.click(screen.getByRole('button', { name: /Continuar/ }))
-    expect(await screen.findByTestId('garmin-card')).toBeInTheDocument()
+    expect(await screen.findByTestId('file-uploader')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Pular por enquanto/ }))
+    expect(screen.getByTestId('garmin-card')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Pular por enquanto/ }))
     expect(screen.getByText(/Tudo pronto/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Começar a treinar/ }))
