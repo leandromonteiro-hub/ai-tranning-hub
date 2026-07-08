@@ -18,10 +18,13 @@ export function OnboardingWizard() {
     setBusy(true); setError('')
     try {
       const res = await apiFetch('athletes/me/profile')
-      const profile = res.ok ? await res.json() : null
+      if (!res.ok) {
+        setError('Não foi possível verificar seu perfil. Tente novamente.')
+        return
+      }
+      const profile = await res.json()
       if (!isAnamneseComplete(profile)) {
-        const miss = missingRequiredFields(profile)
-        setError(`Preencha os campos obrigatórios antes de continuar: ${miss.join(', ')}.`)
+        setError(`Preencha os campos obrigatórios antes de continuar: ${missingRequiredFields(profile).join(', ')}.`)
         return
       }
       setStep(1)
