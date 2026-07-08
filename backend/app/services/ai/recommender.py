@@ -174,10 +174,12 @@ async def generate_recommendation(
         physiological_objective=_objective(safety),
         block_relation=f"Alinhado ao bloco atual ({block.value}) e ao estado de forma (CTL/ATL/TSB).",
         rationale=llm.text if llm.success else "LLM unavailable; conservative default applied.",
-        adjust_if_tired="If more fatigued than the snapshot indicates, drop to Z1-Z2 "
-        "endurance or take full rest; never push intensity on a high-fatigue day.",
-        adjust_if_less_time="If less time is available, keep the primary intensity "
-        "interval(s) and trim warm-up/cool-down and endurance volume.",
+        adjust_if_tired="Se estiver mais cansado do que os números indicam, caia "
+        "para endurance Z1–Z2 ou descanse por completo; nunca force intensidade "
+        "em dia de fadiga alta.",
+        adjust_if_less_time="Se tiver menos tempo, mantenha o(s) intervalo(s) "
+        "principal(is) de intensidade e corte aquecimento/volta à calma e o volume "
+        "de endurance.",
         payload={
             "llm_text": llm.text,
             "template_version": template_version,
@@ -373,5 +375,5 @@ def _summary(text: str, safety) -> str:
 
 def _objective(safety) -> str:
     if safety.risk_level == RiskLevel.HIGH:
-        return "Recovery / load reduction to restore readiness before resuming load."
-    return "Targeted stimulus aligned with the current training block and recent load."
+        return "Recuperação / redução de carga para restaurar a prontidão antes de retomar o volume."
+    return "Estímulo direcionado ao bloco de treino atual e à carga recente."
