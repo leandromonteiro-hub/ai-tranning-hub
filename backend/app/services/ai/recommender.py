@@ -15,13 +15,10 @@ The LLM is never called before guardrails have run.
 from __future__ import annotations
 
 import uuid
-from datetime import date
-
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from datetime import timedelta
+from datetime import date, timedelta
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.core.tenant import TenantContext

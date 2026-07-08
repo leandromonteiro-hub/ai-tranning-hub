@@ -64,6 +64,7 @@ async def _do_push_recommendation(
     athlete_id: str,
     tenant_id: str | None = None,
     *,
+    chosen_variant: str | None = None,
     client_factory=RealGarminClient,
     session_factory=AsyncSessionLocal,
 ) -> dict:
@@ -86,7 +87,7 @@ async def _do_push_recommendation(
         if conn is None or conn.status != GarminConnectionStatus.CONNECTED:
             return {"status": "skipped", "reason": "not_connected"}
 
-        variant = (rec.payload or {}).get("chosen_variant", "ai")
+        variant = chosen_variant or (rec.payload or {}).get("chosen_variant", "ai")
         key = "methodology_workout" if variant == "methodology" else "structured_workout"
         sw_data = (rec.payload or {}).get(key)
         if not sw_data:
@@ -156,9 +157,11 @@ async def _do_unpush_recommendation(
         return {"status": "ok"}
 
 
-def push_recommendation_to_garmin(rec_id: str, athlete_id: str, tenant_id: str | None = None) -> dict:
+def push_recommendation_to_garmin(
+    rec_id: str, athlete_id: str, tenant_id: str | None = None, chosen_variant: str | None = None
+) -> dict:
     """Celery task: push a recommendation's workout to Garmin (registered as 'garmin_push_recommendation')."""
-    return run_async(_do_push_recommendation(rec_id, athlete_id, tenant_id))
+    return run_async(_do_push_recommendation(rec_id, athlete_id, tenant_id, chosen_variant=chosen_variant))
 
 
 def unpush_recommendation_from_garmin(rec_id: str, athlete_id: str, tenant_id: str | None = None) -> dict:

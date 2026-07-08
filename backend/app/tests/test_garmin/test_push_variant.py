@@ -87,13 +87,14 @@ async def _make_rec(maker, aid: str, chosen: str | None) -> str:
 
 
 async def test_push_uses_methodology_when_chosen(env):
-    """chosen_variant='methodology' → the pushed workout is the traditional-method one."""
+    """chosen_variant='methodology' passed as the argument → pushed workout is the traditional one."""
     maker, aid, tenant_id = env
-    rec_id = await _make_rec(maker, aid, "methodology")
+    rec_id = await _make_rec(maker, aid, None)
     fake = FakeGarminClient()
 
     result = await _do_push_recommendation(
         rec_id, aid, tenant_id,
+        chosen_variant="methodology",
         client_factory=lambda: fake,
         session_factory=maker,
     )
@@ -105,7 +106,7 @@ async def test_push_uses_methodology_when_chosen(env):
 
 
 async def test_push_uses_ai_by_default(env):
-    """No chosen_variant (or 'ai') → the pushed workout is the AI one (unchanged default)."""
+    """No chosen_variant argument (and none in payload) → the pushed workout is the AI one."""
     maker, aid, tenant_id = env
     rec_id = await _make_rec(maker, aid, None)
     fake = FakeGarminClient()
@@ -120,3 +121,25 @@ async def test_push_uses_ai_by_default(env):
     assert len(fake.pushed) == 1
     pushed_workout = fake.pushed[0][0]
     assert pushed_workout.name == "IA"
+
+
+async def test_push_argument_wins_over_stale_payload(env):
+    """The chosen_variant ARGUMENT must win even if the (possibly stale) payload disagrees —
+    this is exactly the race the fix closes: the request handler passes the just-decided
+    variant explicitly instead of relying on the worker reading a payload it may see before
+    commit."""
+    maker, aid, tenant_id = env
+    rec_id = await _make_rec(maker, aid, "ai")  # payload says "ai" (stale/fallback)
+    fake = FakeGarminClient()
+
+    result = await _do_push_recommendation(
+        rec_id, aid, tenant_id,
+        chosen_variant="methodology",  # argument says "methodology" (authoritative)
+        client_factory=lambda: fake,
+        session_factory=maker,
+    )
+
+    assert result["status"] == "ok"
+    assert len(fake.pushed) == 1
+    pushed_workout = fake.pushed[0][0]
+    assert pushed_workout.name == "Tradicional"

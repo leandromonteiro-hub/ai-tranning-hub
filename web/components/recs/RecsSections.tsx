@@ -89,38 +89,12 @@ export function RationalePanel({ rec }: { rec: Recommendation }) {
   )
 }
 
-export function StructuredWorkout({ rec }: { rec: Recommendation }) {
-  const desc = workoutDescription(rec.payload)
-  const structured = hasStructured(rec.payload)
-  if (!desc && !structured) return null
-  return (
-    <Card title="🏋️ Treino estruturado">
-      {desc && (
-        <pre className="overflow-x-auto rounded-lg bg-slate-50 p-3 text-xs text-slate-700 dark:bg-slate-800/60 dark:text-slate-200">{desc}</pre>
-      )}
-      {structured && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {[['zwo', 'TrainingPeaks'], ['fit', 'dispositivo']].map(([ext, hint]) => (
-            <a
-              key={ext}
-              href={`/api/proxy/recommendations/${rec.id}/export.${ext}`}
-              download={`treino_${rec.id.slice(0, 8)}.${ext}`}
-              className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-            >
-              ⬇️ .{ext} ({hint})
-            </a>
-          ))}
-        </div>
-      )}
-    </Card>
-  )
-}
-
 function WorkoutColumn({
-  title, desc, hasDl, recId, variant, onUse, busy,
+  title, desc, hasDl, recId, variant, onUse, busy, selected, locked,
 }: {
   title: string; desc: string | null; hasDl: boolean; recId: string
   variant: 'ai' | 'methodology'; onUse: () => void; busy: boolean
+  selected: boolean; locked: boolean
 }) {
   return (
     <Card title={title}>
@@ -141,34 +115,62 @@ function WorkoutColumn({
           ))}
         </div>
       )}
-      <button
-        type="button"
-        onClick={onUse}
-        disabled={busy}
-        className="mt-3 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-      >
-        Usar este
-      </button>
+      {selected ? (
+        <button
+          type="button"
+          disabled
+          className="mt-3 w-full rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-90"
+        >
+          ✓ Escolhido
+        </button>
+      ) : locked ? (
+        <button
+          type="button"
+          disabled
+          className="mt-3 w-full rounded-lg bg-slate-300 px-4 py-2 text-sm font-medium text-slate-500 dark:bg-slate-700 dark:text-slate-400"
+        >
+          Não escolhido
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={onUse}
+          disabled={busy}
+          className="mt-3 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          Usar este
+        </button>
+      )}
     </Card>
   )
 }
 
 export function ComparativeWorkouts({ rec, onChosen }: { rec: Recommendation; onChosen: () => void }) {
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const decidedVariant =
+    rec.decision === 'ACCEPTED'
+      ? ((rec.payload?.chosen_variant as 'ai' | 'methodology' | undefined) ?? null)
+      : null
+  const [chosen, setChosen] = useState<'ai' | 'methodology' | null>(decidedVariant)
   const aiDesc = workoutDescription(rec.payload)
   const aiHas = hasStructured(rec.payload)
   const tradDesc = methodologyWorkoutDescription(rec.payload)
   const tradHas = hasMethodologyWorkout(rec.payload)
 
   async function choose(variant: 'ai' | 'methodology') {
-    setBusy(true)
+    setBusy(true); setError(null)
     try {
-      await apiFetch(`recommendations/${rec.id}/decision`, {
+      const res = await apiFetch(`recommendations/${rec.id}/decision`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ decision: 'ACCEPTED', chosen_variant: variant }),
       })
+      if (!res.ok) { setError('Não foi possível registrar sua escolha. Tente de novo.'); return }
+      setChosen(variant)
       onChosen()
+    } catch {
+      setError('Não foi possível registrar sua escolha. Tente de novo.')
     } finally {
       setBusy(false)
     }
@@ -179,14 +181,30 @@ export function ComparativeWorkouts({ rec, onChosen }: { rec: Recommendation; on
     if (!aiDesc && !aiHas) return null
     return (
       <div className="grid grid-cols-1 gap-4">
-        <WorkoutColumn title="🏋️ Treino" desc={aiDesc} hasDl={aiHas} recId={rec.id} variant="ai" onUse={() => choose('ai')} busy={busy} />
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <WorkoutColumn
+          title="🏋️ Treino" desc={aiDesc} hasDl={aiHas} recId={rec.id} variant="ai"
+          onUse={() => choose('ai')} busy={busy}
+          selected={chosen === 'ai'} locked={chosen !== null}
+        />
       </div>
     )
   }
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <WorkoutColumn title="🏛️ Método tradicional" desc={tradDesc} hasDl={tradHas} recId={rec.id} variant="methodology" onUse={() => choose('methodology')} busy={busy} />
-      <WorkoutColumn title="🤖 Recomendação da IA" desc={aiDesc} hasDl={aiHas} recId={rec.id} variant="ai" onUse={() => choose('ai')} busy={busy} />
+    <div className="grid grid-cols-1 gap-4">
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <WorkoutColumn
+          title="🏛️ Método tradicional" desc={tradDesc} hasDl={tradHas} recId={rec.id} variant="methodology"
+          onUse={() => choose('methodology')} busy={busy}
+          selected={chosen === 'methodology'} locked={chosen !== null}
+        />
+        <WorkoutColumn
+          title="🤖 Recomendação da IA" desc={aiDesc} hasDl={aiHas} recId={rec.id} variant="ai"
+          onUse={() => choose('ai')} busy={busy}
+          selected={chosen === 'ai'} locked={chosen !== null}
+        />
+      </div>
     </div>
   )
 }
