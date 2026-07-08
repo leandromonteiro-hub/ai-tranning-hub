@@ -118,3 +118,37 @@ async def test_methodology_workout_uses_median_of_in_window_durations(
     # Sanity: neither the block fallback (5400s) nor the excluded future
     # outlier (99999s) drove the result.
     assert abs(total_s - 5400) > 120
+
+
+@pytest.mark.asyncio
+async def test_default_texts_are_portuguese(session, two_athletes, monkeypatch):
+    a, _ = two_athletes
+    ctx = ctx_for(a)
+
+    async def mock_value_on(self, d, aid):
+        return 250.0
+
+    async def mock_block_on(self, d, aid):
+        return BlockType.BASE
+
+    monkeypatch.setattr(
+        "app.services.ai.recommender.FtpRepository.value_on",
+        mock_value_on,
+    )
+    monkeypatch.setattr(
+        "app.services.ai.recommender.TrainingWeekRepository.block_on",
+        mock_block_on,
+    )
+    from app.models.athlete import AthleteProfile
+    session.add(AthleteProfile(
+        athlete_id=a.id, birth_date=date(1990, 1, 1), sex="M", weight_kg=70,
+        height_cm=175, max_hr=185, primary_discipline="XCM", years_training=5,
+        goals="ultra", weekly_hours=10,
+    ))
+    await session.flush()
+    rec = await generate_recommendation(session, ctx, a.id, target_date=date(2026, 7, 7))
+    # Sem palavras em inglês nos defaults; presença de acento/pt-BR.
+    assert "stimulus" not in (rec.physiological_objective or "").lower()
+    assert "if more fatigued" not in (rec.adjust_if_tired or "").lower()
+    assert "if less time" not in (rec.adjust_if_less_time or "").lower()
+    assert "Estímulo" in (rec.physiological_objective or "")
