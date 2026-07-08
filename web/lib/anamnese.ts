@@ -47,3 +47,30 @@ export function fromProfile(p: AthleteProfile | null | undefined): AnamneseForm 
     has_power_meter: !!p?.has_power_meter, has_hr_monitor: !!p?.has_hr_monitor,
   }
 }
+
+// Espelha backend REQUIRED_FIELDS (profile_context.py) — os 9 que travam a recomendação.
+const REQUIRED: ReadonlyArray<[keyof AthleteProfile, string]> = [
+  ['birth_date', 'Data de nascimento'],
+  ['sex', 'Sexo'],
+  ['weight_kg', 'Peso'],
+  ['height_cm', 'Altura'],
+  ['max_hr', 'FC máxima'],
+  ['primary_discipline', 'Disciplina principal'],
+  ['years_training', 'Anos de treino'],
+  ['goals', 'Objetivos'],
+  ['weekly_hours', 'Horas por semana'],
+]
+
+function _isFilled(v: unknown): boolean {
+  return v !== null && v !== undefined && v !== ''
+}
+
+/** Rótulos pt-BR dos campos obrigatórios que ainda faltam. */
+export function missingRequiredFields(profile: AthleteProfile | null | undefined): string[] {
+  return REQUIRED.filter(([k]) => !_isFilled(profile?.[k])).map(([, label]) => label)
+}
+
+/** True quando os 9 campos obrigatórios da anamnese estão preenchidos. */
+export function isAnamneseComplete(profile: AthleteProfile | null | undefined): boolean {
+  return missingRequiredFields(profile).length === 0
+}

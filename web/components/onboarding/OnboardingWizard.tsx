@@ -1,6 +1,7 @@
 "use client";
 import { useState } from 'react'
 import { apiFetch } from '@/lib/api'
+import { isAnamneseComplete, missingRequiredFields } from '@/lib/anamnese'
 import { AnamneseView } from '@/components/anamnese/AnamneseView'
 import { GarminCard } from '@/components/importar/GarminCard'
 import { Button } from '@/components/ui/Button'
@@ -18,8 +19,9 @@ export function OnboardingWizard() {
     try {
       const res = await apiFetch('athletes/me/profile')
       const profile = res.ok ? await res.json() : null
-      if (!profile) {
-        setError('Salve sua anamnese antes de continuar.')
+      if (!isAnamneseComplete(profile)) {
+        const miss = missingRequiredFields(profile)
+        setError(`Preencha os campos obrigatórios antes de continuar: ${miss.join(', ')}.`)
         return
       }
       setStep(1)
