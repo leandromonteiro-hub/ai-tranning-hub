@@ -45,4 +45,39 @@ describe('ComparativeWorkouts', () => {
       expect.objectContaining({ method: 'POST', body: expect.stringContaining('methodology') }),
     ))
   })
+
+  it('"Usar este" na IA posta decision com chosen_variant ai', async () => {
+    ;(apiFetch as Mock).mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
+    render(<ComparativeWorkouts rec={rec()} onChosen={() => {}} />)
+    fireEvent.click(screen.getAllByRole('button', { name: /Usar este/ })[1])
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      'recommendations/r1/decision',
+      expect.objectContaining({ method: 'POST', body: expect.stringContaining('"chosen_variant":"ai"') }),
+    ))
+  })
+
+  it('mostra erro e não marca escolhido quando a API falha', async () => {
+    ;(apiFetch as Mock).mockResolvedValue({ ok: false, json: async () => ({}) } as Response)
+    const onChosen = vi.fn()
+    render(<ComparativeWorkouts rec={rec()} onChosen={onChosen} />)
+    fireEvent.click(screen.getAllByRole('button', { name: /Usar este/ })[0])
+    await waitFor(() => expect(screen.getByText(/Não foi possível registrar/)).toBeInTheDocument())
+    expect(onChosen).not.toHaveBeenCalled()
+    expect(screen.queryByText('✓ Escolhido')).not.toBeInTheDocument()
+  })
+
+  it('após escolher, marca o card escolhido e trava o outro', async () => {
+    ;(apiFetch as Mock).mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
+    render(<ComparativeWorkouts rec={rec()} onChosen={() => {}} />)
+    fireEvent.click(screen.getAllByRole('button', { name: /Usar este/ })[0])
+    await waitFor(() => expect(screen.getByText('✓ Escolhido')).toBeInTheDocument())
+    expect(screen.getByText('Não escolhido')).toBeInTheDocument()
+  })
+
+  it('recomendação já aceita renderiza a variante escolhida travada', () => {
+    const decided = { ...rec({ chosen_variant: 'ai' }), decision: 'ACCEPTED' }
+    render(<ComparativeWorkouts rec={decided} onChosen={() => {}} />)
+    expect(screen.getByText('✓ Escolhido')).toBeInTheDocument()
+    expect(screen.getByText('Não escolhido')).toBeInTheDocument()
+  })
 })

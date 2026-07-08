@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import unicodedata
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -153,7 +154,7 @@ async def get_recommendation(
 @router.get("/{rec_id}/export.fit")
 async def export_recommendation_fit(
     rec_id: uuid.UUID,
-    variant: str = "ai",
+    variant: Literal["ai", "methodology"] = "ai",
     ctx: TenantContext = Depends(get_tenant),
     db: AsyncSession = Depends(get_db),
 ):
@@ -175,7 +176,7 @@ async def export_recommendation_fit(
 @router.get("/{rec_id}/export.zwo")
 async def export_recommendation_zwo(
     rec_id: uuid.UUID,
-    variant: str = "ai",
+    variant: Literal["ai", "methodology"] = "ai",
     ctx: TenantContext = Depends(get_tenant),
     db: AsyncSession = Depends(get_db),
 ):
@@ -228,7 +229,7 @@ async def record_decision(
                 # Inline import to avoid circular import at module load time.
                 from app.jobs.garmin_job import push_recommendation_to_garmin
                 push_recommendation_to_garmin.delay(
-                    str(rec.id), str(ctx.athlete_id), ctx.tenant_id
+                    str(rec.id), str(ctx.athlete_id), ctx.tenant_id, body.chosen_variant
                 )
             elif body.decision == RecommendationDecision.REJECTED and (rec.payload or {}).get(
                 "garmin_workout_id"
