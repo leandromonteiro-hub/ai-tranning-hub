@@ -52,6 +52,14 @@ services:
     restart: unless-stopped
     command: celery -A app.jobs.celery_app.celery worker --loglevel=INFO
     env_file: .env
+    # NÃO REMOVER. Sem init, o PID 1 do container é o master do Celery, que não
+    # faz reap de processos órfãos. Quando o healthcheck abaixo estoura o timeout
+    # de 10s, o Docker mata o `sh` e reparenta `celery inspect`/`grep` ao PID 1 —
+    # cada timeout deixava um zumbi permanente. Em 2026-07-28 havia 9.459 zumbis
+    # acumulados; os PIDs esgotaram o limite e o worker passou a falhar com
+    # "RuntimeError: can't start new thread", derrubando o garmin_beat_sync_all.
+    # Com init, o tini vira PID 1 e faz o reap.
+    init: true
     healthcheck:
       test: ["CMD-SHELL", "celery -A app.jobs.celery_app.celery inspect ping -t 5 | grep -q pong || exit 1"]
       interval: 30s
