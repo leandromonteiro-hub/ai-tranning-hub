@@ -36,7 +36,8 @@ latência não paga as peças a mais).
 | App criado **na hora, sem aprovação**, limite de **10 membros Whoop** | [App Approval](https://developer.whoop.com/docs/developing/app-approval/) |
 | API v2, OAuth2 — auth em `api.prod.whoop.com/oauth/oauth2/auth`, token em `/token` | [OAuth](https://developer.whoop.com/docs/developing/oauth/) |
 | Escopos: `read:recovery`, `read:sleep`, `offline` (refresh token) | [API Docs](https://developer.whoop.com/api/) |
-| `GET /v2/recovery` e `GET /v2/activity/sleep`, paginados | [API Docs](https://developer.whoop.com/api/) |
+| Base `https://api.prod.whoop.com/developer/v2/`; `GET /recovery` e `GET /activity/sleep` | [API Docs](https://developer.whoop.com/api/) |
+| Paginação: `limit` (máx 25), `start`, `end` (ISO 8601), `nextToken`; envelope `{records, next_token}` | [API Docs](https://developer.whoop.com/api/) |
 | **100 req/min, 10.000 req/dia**, com cabeçalhos de limite restante | [Rate Limiting](https://developer.whoop.com/docs/developing/rate-limiting/) |
 
 O limite de 10 membros cobre o piloto inteiro. Aprovação só é necessária para
@@ -66,6 +67,18 @@ Ou seja: dormiu 23h de segunda e acordou 6h de terça ⇒ o registro é de
 **terça** — o dia cujo treino aquela recuperação deve informar. Sem essa regra
 explícita, um fuso ou uma virada de meia-noite jogaria o HRV da noite no dia
 errado, e a recomendação leria a recuperação de ontem como se fosse de hoje.
+
+A recuperação não traz data nem duração de sono: ela aponta para o sono por
+`sleep_id`. O sync busca os dois recursos na mesma janela, indexa os sonos por
+`id` e resolve a data da recuperação pelo sono correspondente.
+
+### Dois filtros obrigatórios
+
+- **`nap: true` é descartado.** Cochilo não é o sono da noite; somar cochilos em
+  `sleep_hours` inflaria a noite e distorceria a leitura de recuperação.
+- **Só `score_state == "SCORED"` é usado.** Registros `PENDING_SCORE` ou
+  `UNSCORABLE` têm `score` ausente ou incompleto — tratá-los como dado gravaria
+  zeros e vazios como se fossem medição.
 
 ## Decisões
 
