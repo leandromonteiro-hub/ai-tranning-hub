@@ -144,7 +144,7 @@ Como a precedência é fixa, a regra dispensa rastrear origem campo por campo:
 | Quem grava | Regra |
 |---|---|
 | **Whoop** | Grava todo campo preenchido. Campo vazio na resposta **nunca** apaga valor existente. |
-| **Garmin** | Grava só onde está vazio, e não toca em campo já preenchido em dia que a Whoop também alimentou. |
+| **Garmin** | Grava normalmente — inclusive atualizando valor que ele mesmo escreveu antes — mas **nunca com vazio**, e **nunca por cima de campo preenchido em dia que a Whoop alimentou**. |
 
 Os quatro casos:
 
@@ -163,10 +163,14 @@ válida mesmo nos dias em que a Whoop não participa.
 
 ### Limitação aceita
 
-A procedência é **por linha, não por campo**. Num dia em que as duas fontes
-contribuíram, se o Garmin depois corrigir um valor que a Whoop não forneceu, o
-valor antigo é mantido. O modo de falha é benigno: dado velho, nunca dado errado
-de fonte errada. Resolver exigiria cinco colunas de origem — não se justifica
+A procedência é **por linha, não por campo** — `source` diz que a Whoop
+contribuiu com aquele dia, não com qual métrica. Consequência: num dia em que as
+duas fontes contribuíram, se o Garmin depois corrigir um valor que a Whoop nunca
+forneceu, o valor antigo é mantido. Em dias só do Garmin ele continua atualizando
+normalmente.
+
+O modo de falha é benigno: dado velho, nunca dado errado de fonte errada.
+Resolver exigiria cinco colunas de origem, uma por métrica — não se justifica
 para 10 atletas.
 
 ## Tratamento de erro
