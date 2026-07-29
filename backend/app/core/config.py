@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     # Google SSO. Vazio => login com Google desligado (rota /auth/google responde 503).
     google_client_id: str = ""
 
+    # Whoop (API oficial v2, OAuth2). Vazio => integração desligada (rotas 503).
+    # whoop_token_key: chave Fernet para o token em repouso. Gere com:
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    whoop_client_id: str = ""
+    whoop_client_secret: str = ""
+    whoop_token_key: str = ""
+
     # Database
     database_url: str = (
         "postgresql+asyncpg://athlete:athlete_dev_pwd@postgres:5432/athlete_hub"
