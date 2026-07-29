@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     bootstrap_admin_email: str = "admin@athletehub.example.com"
     bootstrap_admin_password: str = "admin_dev_pwd"
 
+    # Monitoramento externo (healthchecks.io). Vazio => ping vira no-op.
+    # Heartbeat: o beat pinga a cada 15 min; o check alerta se o ping sumir.
+    # Failure: recebe POST em /fail quando qualquer task do Celery estoura.
+    monitor_heartbeat_url: str | None = None
+    monitor_failure_url: str | None = None
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def sync_database_url(self) -> str:
