@@ -7,13 +7,22 @@ serviço externo, seria pior do que não ter monitor nenhum.
 """
 from __future__ import annotations
 
+import logging
+
 import httpx
 
 from app.core.monitoring import ping_monitor
 
 
-def test_no_request_when_url_is_not_configured():
-    """URL vazia => no-op silencioso. Dev, CI e prod-antes-da-conta não tocam a rede."""
+def test_no_request_when_url_is_not_configured(caplog):
+    """URL vazia => no-op SILENCIOSO. Dev, CI e prod-antes-da-conta não tocam a rede.
+
+    "Silencioso" é parte do contrato (docstring de `ping_monitor`): sem o guard
+    `if not url: return False`, o POST cai no `except` genérico (httpx levanta
+    antes de chegar ao transport) e devolve False do mesmo jeito — mas só depois
+    de logar um warning. Sem afirmar ausência de warning, este teste passaria
+    mesmo se o guard fosse removido.
+    """
     calls: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -22,9 +31,12 @@ def test_no_request_when_url_is_not_configured():
 
     transport = httpx.MockTransport(handler)
 
-    assert ping_monitor(None, transport=transport) is False
-    assert ping_monitor("", transport=transport) is False
+    with caplog.at_level(logging.WARNING, logger="app.core.monitoring"):
+        assert ping_monitor(None, transport=transport) is False
+        assert ping_monitor("", transport=transport) is False
+
     assert calls == []
+    assert caplog.records == []
 
 
 def test_posts_to_the_configured_url():
