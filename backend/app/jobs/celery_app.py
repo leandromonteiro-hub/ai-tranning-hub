@@ -21,11 +21,20 @@ celery.conf.update(
 # Ensure task modules are imported so Celery registers them.
 celery.autodiscover_tasks(["app.jobs"])
 
-from app.jobs import import_job, metrics_job, profile_job, garmin_job  # noqa: E402,F401
+from app.jobs import import_job, metrics_job, profile_job, garmin_job, health_job  # noqa: E402,F401
+
+# Alerta imediato quando QUALQUER task estoura (ver app/jobs/health_job.py).
+from celery.signals import task_failure  # noqa: E402
+
+task_failure.connect(health_job.alert_task_failure, weak=False)
 
 celery.conf.beat_schedule = {
     "garmin-daily-sync": {
         "task": "garmin_beat_sync_all",
         "schedule": 24 * 60 * 60.0,  # daily
+    },
+    "monitoring-heartbeat": {
+        "task": "monitoring_heartbeat",
+        "schedule": 900.0,  # 15 min — grace de 20 min no healthchecks.io
     },
 }
