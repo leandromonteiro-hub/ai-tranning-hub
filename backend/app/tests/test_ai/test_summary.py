@@ -17,7 +17,7 @@ def _safety(risk):
 def test_summary_strips_markdown_heading_keeps_risk_prefix():
     text = "## Recomendação para 2026-06-26 — Endurance Z2 (ajustado)\n\nbla bla"
     out = _summary(text, _safety(RiskLevel.HIGH))
-    assert out.startswith("[CONSERVATIVE ALTERNATIVE — high-risk state] ")
+    assert out.startswith("[ALTERNATIVA CONSERVADORA — estado de risco alto] ")
     assert "Recomendação para 2026-06-26 — Endurance Z2 (ajustado)" in out
     assert "##" not in out
 
@@ -29,7 +29,7 @@ def test_summary_low_risk_has_no_prefix():
 
 def test_summary_empty_text_falls_back():
     out = _summary("", _safety(RiskLevel.LOW))
-    assert out == "Recommendation generated."
+    assert out == "Recomendação gerada."
 
 
 def test_first_meaningful_line_skips_blank_and_hash_only_lines():

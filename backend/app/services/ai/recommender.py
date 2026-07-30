@@ -364,12 +364,14 @@ def first_meaningful_line(text: str | None) -> str | None:
 
 
 def _summary(text: str, safety) -> str:
+    # Estes prefixos e o fallback aparecem na aba de recomendações e no painel de
+    # ajuste do dia — é texto que o atleta lê, então vai em português.
     prefix = ""
     if safety.risk_level == RiskLevel.HIGH:
-        prefix = "[CONSERVATIVE ALTERNATIVE — high-risk state] "
+        prefix = "[ALTERNATIVA CONSERVADORA — estado de risco alto] "
     elif safety.risk_level == RiskLevel.MODERATE:
-        prefix = "[PROCEED WITH CAUTION] "
-    first_line = first_meaningful_line(text) or "Recommendation generated."
+        prefix = "[PROSSIGA COM CAUTELA] "
+    first_line = first_meaningful_line(text) or "Recomendação gerada."
     return (prefix + first_line)[:500]
 
 

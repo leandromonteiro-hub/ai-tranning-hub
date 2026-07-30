@@ -10,7 +10,13 @@ SYSTEM_PROMPT = (
     "sleep or HRV signals, and you clearly separate measured facts from inferred "
     "suggestions. You are an analytical support tool and never replace medical or "
     "professional evaluation. Every recommendation must be explainable and tied to "
-    "the evidence provided."
+    "the evidence provided. "
+    # A instrução de idioma vem em português de propósito: escrevê-la na língua
+    # de saída ancora o modelo melhor do que descrevê-la em inglês.
+    "Você escreve SEMPRE em português do Brasil. Todo texto que o atleta lê — "
+    "títulos, objetivo, racional, ressalvas, riscos e alternativas — sai em "
+    "português. Siglas e unidades técnicas consagradas (FTP, CTL, ATL, TSB, IF, "
+    "TSS, HRV, Z1-Z5, VO2max, W, km, bpm) permanecem como são."
 )
 
 DAILY_WORKOUT_TEMPLATE = """\
@@ -56,6 +62,13 @@ risks, how to scale down if the athlete is more tired, and how to scale down if
 they have less time available today. Tailor it to the athlete profile and to the
 athlete's established training methodology above (intensity distribution,
 periodization, power profile, experience, goals, availability, injuries).
+
+IDIOMA DA RESPOSTA (obrigatório): escreva a recomendação inteira em português do
+Brasil — inclusive o título e os cabeçalhos de seção. O atleta é brasileiro e
+este texto é a explicação que ele lê para entender o treino do dia. Mantenha
+siglas e unidades técnicas consagradas (FTP, CTL, ATL, TSB, IF, TSS, HRV, Z1-Z5,
+VO2max, W, km, bpm) como são, sem traduzir nem explicar. Não escreva nenhuma
+linha em inglês.
 """
 
 
@@ -68,7 +81,7 @@ def render_daily_workout(
         profile=profile, methodology=methodology, twin=twin, safety=safety,
         evidence=evidence, knowledge=knowledge, feedback=feedback,
         methodology_workout=methodology_workout,
-        question=question or "Recommend today's workout.",
+        question=question or "Recomende o treino de hoje.",
     )
 
 
@@ -78,5 +91,8 @@ def template_hash(template: str) -> str:
 
 # Registry of active templates (name -> (version, body)).
 ACTIVE_TEMPLATES = {
-    "daily_workout": (5, DAILY_WORKOUT_TEMPLATE),
+    # v6: instrução explícita de idioma (PT-BR). O corpo mudou, então o hash muda
+    # e o prompt_store cria uma versão ativa nova, preservando a 5 no histórico —
+    # recomendações antigas continuam rastreáveis ao prompt que as gerou.
+    "daily_workout": (6, DAILY_WORKOUT_TEMPLATE),
 }
