@@ -101,6 +101,15 @@ export type GarminStatus = {
   last_error: string | null
 }
 export type GarminConnectResponse = { needs_mfa: boolean; status: string }
+
+// --- Whoop (API oficial v2: HRV, sono, recuperação) ---
+export type WhoopStatus = {
+  status: 'CONNECTED' | 'NEEDS_REAUTH' | 'DISCONNECTED'
+  last_sync_at: string | null
+  last_error: string | null
+  connected_at: string | null
+}
+export type WhoopAuthorizeResponse = { authorize_url: string }
 export type GarminSyncResponse = { task_id: string | null }
 
 // --- Convites (admin) ---

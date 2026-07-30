@@ -1,5 +1,6 @@
 "use client";
 import { GarminCard } from '@/components/importar/GarminCard'
+import { WhoopCard } from '@/components/conexoes/WhoopCard'
 
 export function ConexoesView() {
   return (
@@ -12,6 +13,7 @@ export function ConexoesView() {
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <GarminCard />
+        <WhoopCard />
       </div>
     </div>
   )
