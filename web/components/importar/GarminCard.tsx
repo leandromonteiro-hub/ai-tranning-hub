@@ -185,11 +185,17 @@ export function GarminCard() {
       <Card title={TITLE} action={<Badge variant="info">Aguardando código</Badge>}>
         <form onSubmit={submitMfa} className="space-y-3">
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            Digite o código enviado pela Garmin (vale ~5 minutos).
+            A Garmin enviou um código de 6 dígitos <strong>para o email da sua
+            conta Garmin</strong> — não é o app autenticador. Vale ~5 minutos.
+          </p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Não chegou nada? Espere algumas horas antes de tentar de novo: a
+            Garmin costuma limitar conexões vindas de servidores, e tentativas
+            seguidas prolongam o bloqueio.
           </p>
           <div className="max-w-xs">
             <Input
-              label="Código de verificação (MFA)"
+              label="Código que a Garmin enviou por email"
               value={code}
               onChange={(e) => setCode(e.target.value)}
               inputMode="numeric"
