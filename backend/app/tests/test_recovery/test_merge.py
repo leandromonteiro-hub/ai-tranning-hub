@@ -72,6 +72,18 @@ def test_empty_value_never_erases_an_existing_one():
     assert row.hrv_ms == 61.5
 
 
+def test_rewriting_the_same_value_is_not_a_change():
+    """Sem isso o sync diário reportaria "N dias escritos" toda manhã, sempre.
+
+    O relatório precisa distinguir sincronização que trouxe dado novo de
+    sincronização que só releu o que já estava lá.
+    """
+    row = _row(hrv_ms=61.5, sleep_hours=6.0, source="whoop")
+
+    assert merge_into(row, RecoverySnapshot(hrv_ms=61.5, sleep_hours=6.0), "whoop") is False
+    assert row.hrv_ms == 61.5
+
+
 def test_source_does_not_duplicate_on_repeated_sync():
     row = _row()
     merge_into(row, RecoverySnapshot(hrv_ms=61.5), "whoop")

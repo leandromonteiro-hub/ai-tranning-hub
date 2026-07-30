@@ -12,6 +12,11 @@ disputam as mesmas colunas. Duas regras resolvem:
 
 A procedência é por LINHA, não por campo (``source`` acumula os contribuintes do
 dia). A consequência aceita está no spec de 2026-07-29.
+
+``merge_into`` devolve True apenas quando algum valor **mudou de fato**. Regravar
+o mesmo número não conta: sem isso, o relatório do sync diário diria "2 dias
+escritos" toda manhã, e ninguém saberia distinguir uma sincronização que trouxe
+dado novo de uma que só releu o que já estava lá.
 """
 from __future__ import annotations
 
@@ -57,8 +62,11 @@ def merge_into(row: RecoveryMetric, snap: RecoverySnapshot, source: str) -> bool
         new = getattr(snap, f.name)
         if new is None:
             continue  # ausência de medida nunca sobrescreve medida
-        if protected and getattr(row, f.name) is not None:
+        cur = getattr(row, f.name)
+        if protected and cur is not None:
             continue  # dia da Whoop: fonte sem precedência só preenche lacuna
+        if cur == new:
+            continue  # regravar o mesmo valor não é mudança — ver nota abaixo
         setattr(row, f.name, new)
         changed = True
     if changed:
