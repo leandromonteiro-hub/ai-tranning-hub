@@ -4,6 +4,7 @@ so the whole system is testable offline with FakeGarminClient."""
 from __future__ import annotations
 
 import io
+import logging
 import zipfile
 from datetime import date, datetime, timezone
 from typing import Protocol
@@ -18,8 +19,50 @@ from app.services.garmin.types import (
 from app.services.workout.model import Repeat, StructuredWorkout
 
 
+class _WarningCollector(logging.Handler):
+    """Guarda os warnings que a garminconnect emite durante um login."""
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.WARNING)
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+def _saw_rate_limit(records: list[logging.LogRecord]) -> bool:
+    """True se a lib reportou 429 numa estratégia de login.
+
+    A lib loga "<estratégia> returned 429: ..." antes de tentar a próxima. Se o
+    login terminar pedindo MFA depois disso, o pedido é falso positivo: a
+    estratégia web devolveu a tela de login normal do Garmin, cujo título
+    ("GARMIN Authentication Application") casa com o detector de MFA da lib.
+
+    Se a lib mudar o texto do log, isto para de detectar e voltamos ao
+    comportamento antigo — degrada para o status quo, não para algo pior.
+    """
+    return any("429" in record.getMessage() for record in records)
+
+
 class GarminAuthError(RuntimeError):
     """Auth failed / token invalid (maps to needs_reauth)."""
+
+
+class GarminRateLimited(GarminAuthError):
+    """O Garmin está limitando o IP do servidor.
+
+    Herda de GarminAuthError para reusar o tratamento que a rota já dá (400 com
+    a mensagem na tela). A mensagem é o produto: ela substitui um pedido de
+    código que o atleta não tem como atender.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "O Garmin está limitando temporariamente as conexões deste servidor. "
+            "Não é a sua senha nem verificação em duas etapas — não há código para "
+            "digitar. Tente de novo em algumas horas, e evite tentativas seguidas: "
+            "cada uma prolonga o bloqueio."
+        )
 
 
 class GarminSyncError(RuntimeError):
@@ -193,6 +236,12 @@ class RealGarminClient:
         from garminconnect import Garmin
         from garminconnect import GarminConnectAuthenticationError
 
+        # Captura os warnings da lib durante o login. Ver _saw_rate_limit: quando
+        # o Garmin limita o IP, as estratégias rápidas caem com 429 e o fluxo vai
+        # para a estratégia web, que a lib confunde com MFA.
+        collector = _WarningCollector()
+        lib_log = logging.getLogger("garminconnect.client")
+        lib_log.addHandler(collector)
         try:
             self._api = Garmin(email=email, password=password, return_on_mfa=True)
             result1, client_state = self._api.login()
@@ -200,7 +249,14 @@ class RealGarminClient:
             raise GarminAuthError(str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 — never leak a raw lib exception
             raise GarminAuthError(f"login failed: {exc}") from exc
+        finally:
+            lib_log.removeHandler(collector)
+
         if result1 == "needs_mfa":
+            if _saw_rate_limit(collector.records):
+                # Pedir um código aqui manda o atleta esperar um email que o
+                # Garmin nunca enviou — foi o que aconteceu em 2026-07-29.
+                raise GarminRateLimited()
             return NeedsMfa(client_state=client_state)
         return Connected(token=self._dump_token())
 
