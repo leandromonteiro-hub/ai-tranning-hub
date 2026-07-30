@@ -130,6 +130,61 @@ async def test_backfill_marks_backfilled_at(engine):
 
 
 @pytest.mark.asyncio
+async def test_rotated_token_survives_a_failed_sync(engine):
+    """A Whoop rotaciona o refresh a cada renovação.
+
+    Se o sync renovar e DEPOIS falhar, descartar o token novo deixa no banco um
+    refresh já gasto no provedor — a próxima execução falha na autenticação e o
+    atleta trava sem jeito de perceber. O token novo tem de sobreviver à falha.
+    """
+    maker = async_sessionmaker(bind=engine, expire_on_commit=False)
+    aid, tenant = await _athlete_with_connection(maker)
+    antes = (await _status(maker, aid)).encrypted_token
+    novo = {"access_token": "at-2", "refresh_token": "rt-2", "expires_at": 9_999_999_999}
+
+    with pytest.raises(WhoopAuthError):
+        await _do_sync(
+            aid, tenant, 3, False,
+            client_factory=lambda _t: FakeWhoopClient(
+                [], raise_on_fetch=WhoopAuthError("falhou depois de renovar"),
+                rotate_to=novo,
+            ),
+            session_factory=maker,
+        )
+
+    depois = (await _status(maker, aid)).encrypted_token
+    assert depois != antes
+    assert token_store.decrypt(depois) == novo
+
+
+def test_rate_limit_is_skipped_instead_of_retried(monkeypatch):
+    """429 não pode virar rajada de retry: o limite reseta por janela de minuto,
+    e o backoff do Celery tentaria em ~1s, 2s, 4s — cada um outro 429.
+
+    Teste SÍNCRONO de propósito: ``_run_or_skip_rate_limited`` usa ``run_async``,
+    que chama ``asyncio.run``. Dentro de um teste async já existe loop rodando e
+    a chamada trava em deadlock — foi o que aconteceu na primeira versão deste
+    teste.
+    """
+    from app.core import database
+    from app.jobs.whoop_job import _run_or_skip_rate_limited
+    from app.services.whoop.types import WhoopRateLimited
+
+    class _StubEngine:
+        async def dispose(self) -> None:
+            return None
+
+    monkeypatch.setattr(database, "engine", _StubEngine())
+
+    async def falha():
+        raise WhoopRateLimited("limite", retry_after_s=37)
+
+    assert _run_or_skip_rate_limited(falha()) == {
+        "skipped": "rate_limited", "retry_after_s": 37,
+    }
+
+
+@pytest.mark.asyncio
 async def test_without_token_skips_without_touching_the_connection(engine):
     maker = async_sessionmaker(bind=engine, expire_on_commit=False)
     aid, tenant = await _athlete_with_connection(maker)

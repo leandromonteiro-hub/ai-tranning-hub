@@ -11,11 +11,26 @@ from app.services.whoop.types import WhoopDay
 
 
 class FakeWhoopClient:
-    def __init__(self, days: list[WhoopDay], *, raise_on_fetch: Exception | None = None) -> None:
+    """Client determinístico.
+
+    ``rotate_to`` simula o que a Whoop faz de verdade: trocar o par de tokens no
+    meio da execução. Combinado com ``raise_on_fetch``, reproduz o cenário que
+    trava o atleta — renovou e depois falhou.
+    """
+
+    def __init__(
+        self,
+        days: list[WhoopDay],
+        *,
+        raise_on_fetch: Exception | None = None,
+        token: dict | None = None,
+        rotate_to: dict | None = None,
+    ) -> None:
         self._days = days
         self._raise = raise_on_fetch
+        self._rotate_to = rotate_to
         self.calls: list[tuple[date, date]] = []
-        self.token = {
+        self.token = token or {
             "access_token": "fake",
             "refresh_token": "fake",
             "expires_at": 9_999_999_999,
@@ -23,6 +38,8 @@ class FakeWhoopClient:
 
     def fetch_days(self, start: date, end: date) -> list[WhoopDay]:
         self.calls.append((start, end))
+        if self._rotate_to is not None:
+            self.token = dict(self._rotate_to)  # renovou antes de qualquer falha
         if self._raise is not None:
             raise self._raise
         return [d for d in self._days if start <= d.metric_date <= end]
