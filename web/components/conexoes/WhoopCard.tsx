@@ -1,5 +1,6 @@
 "use client";
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { apiFetch } from '@/lib/api'
 import { useWhoopStatus } from '@/lib/hooks'
 import type { WhoopAuthorizeResponse } from '@/lib/types'
@@ -18,21 +19,37 @@ const MOTIVO: Record<string, string> = {
   whoop_token_key_missing: 'Integração incompleta no servidor (chave de criptografia ausente).',
   invalid_state: 'A autorização expirou. Clique em Conectar novamente.',
   not_connected: 'A conexão não está ativa.',
+  sessao_expirada: 'Sua sessão expirou durante a autorização. Entre de novo e repita.',
+  callback_incompleto: 'A Whoop não devolveu a autorização. Tente novamente.',
+  access_denied: 'Você não autorizou o acesso na tela da Whoop.',
 }
+
+const GENERICO = 'Não foi possível concluir. Tente novamente.'
 
 const fmtLastSync = (iso: string | null): string =>
   iso ? new Date(iso).toLocaleString('pt-BR') : 'nunca'
 
 export function WhoopCard() {
   const { data, error, isLoading, mutate } = useWhoopStatus()
+  const params = useSearchParams()
   const [busy, setBusy] = useState(false)
   const [motivo, setMotivo] = useState<string | null>(null)
   const [syncState, setSyncState] = useState<'idle' | 'sent' | 'failed'>('idle')
 
+  // O erro da autorização acontece no callback (outra request, outro processo) e
+  // volta na query string. Sem ler daqui, a mensagem do limite de 10 atletas —
+  // o caso que o runbook promete explicar — nunca chegaria à tela.
+  // params pode ser null fora de um contexto de router (renderização estática),
+  // e um card de conexão não é motivo para derrubar a página inteira.
+  const motivoDaUrl = params?.get('whoop') === 'erro' ? params.get('motivo') : null
+  useEffect(() => {
+    if (motivoDaUrl) setMotivo(MOTIVO[motivoDaUrl] ?? GENERICO)
+  }, [motivoDaUrl])
+
   async function fail(res: Response) {
     const body = await res.json().catch(() => ({}))
     const detail = typeof body?.detail === 'string' ? body.detail : ''
-    setMotivo(MOTIVO[detail] ?? 'Não foi possível concluir. Tente novamente.')
+    setMotivo(MOTIVO[detail] ?? GENERICO)
   }
 
   async function connect() {

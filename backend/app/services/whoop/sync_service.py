@@ -6,7 +6,7 @@ módulo não sabe nada sobre o Garmin.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
@@ -66,10 +66,16 @@ async def sync_athlete(
 
     report = WhoopSyncReport(days_seen=len(fetched))
     for day in fetched:
+        # Um dia sem NENHUMA medida não vira linha: linha vazia conta como "dia de
+        # recuperação" no cálculo de riqueza de dados do perfil e derruba o score
+        # do atleta sem que exista dado nenhum ali.
+        if all(getattr(day.snapshot, f.name) is None for f in fields(day.snapshot)):
+            continue
         existing = (await session.execute(
             select(RecoveryMetric).where(
                 RecoveryMetric.athlete_id == athlete_id,
                 RecoveryMetric.metric_date == day.metric_date,
+                RecoveryMetric.deleted_at.is_(None),
             )
         )).scalar_one_or_none()
         if existing is None:

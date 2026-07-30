@@ -18,16 +18,35 @@ from app.models.whoop import WhoopConnection
 from app.services.whoop import token_store
 from app.services.whoop.client import WhoopClient
 from app.services.whoop.sync_service import sync_athlete
-from app.services.whoop.types import WhoopSyncError
+from app.core.logging import get_logger
+from app.services.whoop.types import WhoopRateLimited, WhoopSyncError
+
+log = get_logger(__name__)
 
 DAILY_WINDOW_DAYS = 3
 BACKFILL_DAYS = 180
 
 
-async def _do_sync(athlete_id: str, tenant_id: str, days: int, mark_backfilled: bool) -> dict:
+async def _do_sync(
+    athlete_id: str,
+    tenant_id: str,
+    days: int,
+    mark_backfilled: bool,
+    *,
+    client_factory=lambda token: WhoopClient(token),
+    session_factory=None,
+) -> dict:
+    """Sincroniza um atleta. As fábricas são injetáveis para o job ser testável.
+
+    O bloco ``except`` não é decoração: sem ele, a marcação de NEEDS_REAUTH feita
+    dentro de ``sync_athlete`` é desfeita quando a sessão fecha pelo caminho da
+    exceção — a conexão ficaria CONNECTED para sempre e o atleta nunca veria o
+    botão de reconectar. Mesmo motivo do commit em ``garmin_job``.
+    """
     aid = uuid.UUID(athlete_id)
     ctx = TenantContext(athlete_id=aid, tenant_id=tenant_id, role=Role.ATHLETE)
-    async with AsyncSessionLocal() as session:
+    maker = session_factory or AsyncSessionLocal
+    async with maker() as session:
         conn = (await session.execute(
             select(WhoopConnection).where(
                 WhoopConnection.athlete_id == aid,
@@ -36,22 +55,49 @@ async def _do_sync(athlete_id: str, tenant_id: str, days: int, mark_backfilled: 
         )).scalar_one_or_none()
         if conn is None or not conn.encrypted_token:
             return {"skipped": "sem conexão"}
-        client = WhoopClient(token_store.decrypt(conn.encrypted_token))
-        report = await sync_athlete(session, ctx, aid, client=client, days=days)
+
+        stored_token = token_store.decrypt(conn.encrypted_token)
+        client = client_factory(stored_token)
+        try:
+            report = await sync_athlete(session, ctx, aid, client=client, days=days)
+        except Exception:
+            # A Whoop rotaciona o refresh token a cada renovação. Se o sync falhar
+            # DEPOIS de uma renovação, descartar o token novo deixa a conexão com
+            # um refresh já gasto — e o atleta trava sem jeito de perceber.
+            if token_store.is_enabled() and client.token != stored_token:
+                conn.encrypted_token = token_store.encrypt(client.token)
+            await session.commit()  # persiste NEEDS_REAUTH e/ou o token renovado
+            raise
+
         if mark_backfilled:
             conn.backfilled_at = datetime.now(timezone.utc)
         await session.commit()
         return {"days_seen": report.days_seen, "days_written": report.days_written}
 
 
+def _run_or_skip_rate_limited(coro) -> dict:
+    """Desiste em silêncio no 429 em vez de deixar o autoretry insistir.
+
+    O limite da Whoop reseta por janela de minuto; o backoff do Celery tentaria
+    de novo em ~1s, 2s, 4s — cada tentativa é outro 429 queimando cota. Para o
+    job diário, esperar o próximo dia é a resposta certa; para o botão manual, o
+    atleta clica de novo.
+    """
+    try:
+        return run_async(coro)
+    except WhoopRateLimited as exc:
+        log.warning("whoop: limite de requisições; pulando (reset em %ss)", exc.retry_after_s)
+        return {"skipped": "rate_limited", "retry_after_s": exc.retry_after_s}
+
+
 def sync_whoop(athlete_id: str, tenant_id: str) -> dict:
     """Task: janela curta, usada pelo beat e pelo botão 'sincronizar agora'."""
-    return run_async(_do_sync(athlete_id, tenant_id, DAILY_WINDOW_DAYS, False))
+    return _run_or_skip_rate_limited(_do_sync(athlete_id, tenant_id, DAILY_WINDOW_DAYS, False))
 
 
 def backfill_whoop(athlete_id: str, tenant_id: str) -> dict:
     """Task: carga inicial de 180 dias, disparada uma vez na conexão."""
-    return run_async(_do_sync(athlete_id, tenant_id, BACKFILL_DAYS, True))
+    return _run_or_skip_rate_limited(_do_sync(athlete_id, tenant_id, BACKFILL_DAYS, True))
 
 
 async def _enqueue_all_connected() -> int:

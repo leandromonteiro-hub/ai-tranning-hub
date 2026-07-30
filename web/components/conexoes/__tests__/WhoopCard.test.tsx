@@ -7,11 +7,16 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { WhoopCard } from '@/components/conexoes/WhoopCard'
 import { useWhoopStatus } from '@/lib/hooks'
+import { useSearchParams } from 'next/navigation'
 import { apiFetch } from '@/lib/api'
 import type { WhoopStatus } from '@/lib/types'
 
 vi.mock('@/lib/hooks', () => ({ useWhoopStatus: vi.fn() }))
 vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }))
+vi.mock('next/navigation', () => ({ useSearchParams: vi.fn() }))
+
+const mockParams = (qs: string) =>
+  (useSearchParams as Mock).mockReturnValue(new URLSearchParams(qs))
 
 const jsonRes = (body: unknown, status = 200) =>
   ({ ok: status < 400, status, json: async () => body }) as Response
@@ -26,7 +31,10 @@ function mockHook(v: { data?: WhoopStatus; error?: unknown; isLoading?: boolean 
   })
 }
 
-beforeEach(() => vi.clearAllMocks())
+beforeEach(() => {
+  vi.clearAllMocks()
+  mockParams('')
+})
 
 describe('WhoopCard', () => {
   it('não renderiza nada quando a feature está desligada (503)', () => {
@@ -53,17 +61,45 @@ describe('WhoopCard', () => {
     expect(screen.getByRole('button', { name: /sincronizar agora/i })).toBeInTheDocument()
   })
 
-  it('explica o limite de membros em vez de erro genérico', async () => {
+  it('explica o limite de membros quando o callback volta com erro', () => {
+    // Este é o caminho REAL do 11º atleta: o erro acontece no callback do OAuth,
+    // volta na query string, e o card precisa lê-lo. O teste anterior mockava a
+    // chamada de authorize, que nunca produz esse detail — passava sem provar nada.
+    mockParams('whoop=erro&motivo=whoop_authorization_failed')
     mockHook({ data: statusOf({ status: 'DISCONNECTED' }) })
-    ;(apiFetch as Mock).mockResolvedValue(
-      jsonRes({ detail: 'whoop_authorization_failed' }, 403),
-    )
+
+    render(<WhoopCard />)
+
+    expect(screen.getByText(/limita 10 atletas/i)).toBeInTheDocument()
+  })
+
+  it('mostra motivo genérico para um erro desconhecido do callback', () => {
+    mockParams('whoop=erro&motivo=coisa_que_nao_mapeamos')
+    mockHook({ data: statusOf({ status: 'DISCONNECTED' }) })
+
+    render(<WhoopCard />)
+
+    expect(screen.getByText(/não foi possível concluir/i)).toBeInTheDocument()
+  })
+
+  it('não mostra erro quando o callback voltou com sucesso', () => {
+    mockParams('whoop=ok')
+    mockHook({ data: statusOf({ status: 'CONNECTED' }) })
+
+    render(<WhoopCard />)
+
+    expect(screen.queryByText(/não foi possível/i)).not.toBeInTheDocument()
+  })
+
+  it('mostra o erro quando a própria chamada de autorizar falha', async () => {
+    mockHook({ data: statusOf({ status: 'DISCONNECTED' }) })
+    ;(apiFetch as Mock).mockResolvedValue(jsonRes({ detail: 'whoop_unavailable' }, 502))
     render(<WhoopCard />)
 
     fireEvent.click(screen.getByRole('button', { name: /conectar/i }))
 
     await waitFor(() =>
-      expect(screen.getByText(/limita 10 atletas/i)).toBeInTheDocument(),
+      expect(screen.getByText(/não respondeu/i)).toBeInTheDocument(),
     )
   })
 
