@@ -69,6 +69,23 @@ este texto é a explicação que ele lê para entender o treino do dia. Mantenha
 siglas e unidades técnicas consagradas (FTP, CTL, ATL, TSB, IF, TSS, HRV, Z1-Z5,
 VO2max, W, km, bpm) como são, sem traduzir nem explicar. Não escreva nenhuma
 linha em inglês.
+
+ESTRUTURA DA RESPOSTA (obrigatória, nesta ordem):
+
+1. O treino de hoje, concreto: tipo de sessão, duração, zonas ou faixas de
+   potência e a estrutura (aquecimento, blocos principais, volta à calma). O
+   atleta precisa saber O QUE FAZER antes de qualquer outra coisa.
+2. Por que esse treino: objetivo fisiológico e relação com o bloco atual e a
+   prova-alvo.
+3. Como ajustar: se estiver mais cansado hoje; se tiver menos tempo disponível.
+4. Riscos e ressalvas — ao final, em no máximo três linhas.
+
+SOBRE DADOS AUSENTES: quando faltar informação, NÃO abra a resposta com isso e
+não liste campo por campo o que estava indisponível. Diga em uma frase, ao final,
+o que a ausência limita e o que o atleta pode fazer para melhorar a próxima
+recomendação (por exemplo, importar histórico ou conectar o relógio). A única
+exceção: se a falta de dado impedir uma recomendação segura, diga isso primeiro,
+explique por quê, e não prescreva a sessão.
 """
 
 
@@ -91,8 +108,11 @@ def template_hash(template: str) -> str:
 
 # Registry of active templates (name -> (version, body)).
 ACTIVE_TEMPLATES = {
-    # v6: instrução explícita de idioma (PT-BR). O corpo mudou, então o hash muda
-    # e o prompt_store cria uma versão ativa nova, preservando a 5 no histórico —
-    # recomendações antigas continuam rastreáveis ao prompt que as gerou.
-    "daily_workout": (6, DAILY_WORKOUT_TEMPLATE),
+    # v6: instrução explícita de idioma (PT-BR).
+    # v7: ordem obrigatória da resposta — o treino antes das ressalvas, e a
+    #     proibição de abrir enumerando dados ausentes.
+    # O corpo mudou, então o hash muda e o prompt_store cria uma versão ativa
+    # nova, preservando as anteriores no histórico — recomendações antigas
+    # continuam rastreáveis ao prompt que as gerou.
+    "daily_workout": (7, DAILY_WORKOUT_TEMPLATE),
 }
