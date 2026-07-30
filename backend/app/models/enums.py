@@ -71,3 +71,11 @@ class GarminConnectionStatus(str, enum.Enum):
     CONNECTED = "CONNECTED"
     NEEDS_REAUTH = "NEEDS_REAUTH"
     DISCONNECTED = "DISCONNECTED"
+
+
+class WhoopConnectionStatus(str, enum.Enum):
+    """Sem AWAITING_MFA: a Whoop é OAuth2 puro, sem passo de código."""
+
+    CONNECTED = "CONNECTED"
+    NEEDS_REAUTH = "NEEDS_REAUTH"
+    DISCONNECTED = "DISCONNECTED"
