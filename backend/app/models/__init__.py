@@ -29,9 +29,11 @@ from app.models.ai import (
 from app.models.knowledge import KnowledgeDocument, Embedding, PromptTemplate
 from app.models.audit import AuditLog
 from app.models.garmin import GarminConnection
+from app.models.whoop import WhoopConnection
 
 __all__ = [
     "Base",
+    "WhoopConnection",
     "Athlete",
     "AthleteProfile",
     "AthleteGoal",

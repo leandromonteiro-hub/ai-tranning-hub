@@ -1,16 +1,16 @@
-"""Fernet encryption boundary for Garmin token + MFA client_state at rest.
+"""Fronteira de criptografia do token Garmin + client_state do MFA em repouso.
 
-The ONLY module that handles Garmin secret material's encryption. The athlete's
-password is never stored; only the garth token_dict and the in-flight MFA
-client_state pass through here, always encrypted with ``settings.garmin_token_key``.
+A senha do atleta nunca é guardada; só o token_dict do garth e o client_state de
+MFA em trânsito passam por aqui, sempre cifrados com ``settings.garmin_token_key``.
+A criptografia em si vive em ``app.core.token_crypto`` — compartilhada com a Whoop
+para não haver duas implementações de Fernet no projeto.
 """
 from __future__ import annotations
 
-import json
-
-from cryptography.fernet import Fernet, InvalidToken
-
+from app.core import token_crypto
 from app.core.config import settings
+
+_KEY_NAME = "garmin_token_key"
 
 
 class GarminCryptoError(RuntimeError):
@@ -21,23 +21,15 @@ def is_enabled() -> bool:
     return bool(settings.garmin_token_key)
 
 
-def _fernet() -> Fernet:
-    if not settings.garmin_token_key:
-        raise GarminCryptoError("garmin_token_key is not configured")
-    try:
-        return Fernet(settings.garmin_token_key.encode())
-    except (ValueError, TypeError) as exc:
-        raise GarminCryptoError(f"invalid garmin_token_key: {exc}") from exc
-
-
 def encrypt(data: dict) -> str:
-    f = _fernet()
-    return f.encrypt(json.dumps(data).encode()).decode()
+    try:
+        return token_crypto.encrypt(data, settings.garmin_token_key, _KEY_NAME)
+    except token_crypto.TokenCryptoError as exc:
+        raise GarminCryptoError(str(exc)) from exc
 
 
 def decrypt(blob: str) -> dict:
-    f = _fernet()
     try:
-        return json.loads(f.decrypt(blob.encode()).decode())
-    except (InvalidToken, ValueError) as exc:
-        raise GarminCryptoError(f"could not decrypt token: {exc}") from exc
+        return token_crypto.decrypt(blob, settings.garmin_token_key, _KEY_NAME)
+    except token_crypto.TokenCryptoError as exc:
+        raise GarminCryptoError(str(exc)) from exc

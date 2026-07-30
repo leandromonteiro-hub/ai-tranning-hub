@@ -1,7 +1,7 @@
 "use client";
 import useSWR from 'swr'
 import { jsonFetcher } from '@/lib/api'
-import type { AdminFeedback, Athlete, AthleteIntelligence, AthleteProfile, CalendarResponse, CompletedWorkout, GarminStatus, Invite, LoadMetric, Race, Recommendation, UsageMetrics, WorkoutStreams } from '@/lib/types'
+import type { AdminFeedback, Athlete, AthleteIntelligence, AthleteProfile, CalendarResponse, CompletedWorkout, GarminStatus, Invite, LoadMetric, Race, Recommendation, UsageMetrics, WhoopStatus, WorkoutStreams } from '@/lib/types'
 
 export function useCalendar(start: string, end: string) {
   return useSWR<CalendarResponse>(`calendar?start=${start}&end=${end}`, jsonFetcher as (p: string) => Promise<CalendarResponse>)
@@ -50,6 +50,13 @@ export function useAdminFeedback() {
 export function useGarminStatus() {
   // 503 = feature desligada — não adianta re-tentar.
   return useSWR<GarminStatus>('garmin/status', jsonFetcher as (p: string) => Promise<GarminStatus>, {
+    shouldRetryOnError: false,
+  })
+}
+
+export function useWhoopStatus() {
+  // 503 = feature desligada — não adianta re-tentar.
+  return useSWR<WhoopStatus>('whoop/status', jsonFetcher as (p: string) => Promise<WhoopStatus>, {
     shouldRetryOnError: false,
   })
 }

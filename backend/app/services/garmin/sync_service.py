@@ -4,7 +4,7 @@ RecoveryMetric for wellness."""
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +19,7 @@ from app.repositories.metrics_repo import RecoveryRepository
 from app.services.garmin import token_store
 from app.services.garmin.client import GarminAuthError, GarminClient, GarminSyncError
 from app.services.ingestion.ingestion_service import import_file
+from app.services.recovery.merge import RecoverySnapshot, merge_into
 from app.services.workout.model import StructuredWorkout
 
 log = get_logger(__name__)
@@ -95,19 +96,22 @@ async def sync_pull(
     try:
         while day <= today:
             snap = client.get_wellness(day)
-            if any((snap.hrv_ms, snap.resting_hr, snap.sleep_hours,
-                    snap.sleep_score, snap.body_battery)):
+            incoming = RecoverySnapshot(
+                hrv_ms=snap.hrv_ms,
+                resting_hr=snap.resting_hr,
+                sleep_hours=snap.sleep_hours,
+                sleep_score=snap.sleep_score,
+                recovery_score=snap.body_battery,
+            )
+            if any(getattr(incoming, f.name) is not None for f in fields(incoming)):
                 existing = await rec_repo.get_for_date(day, athlete_id)
                 if existing is None:
                     existing = RecoveryMetric(athlete_id=athlete_id, metric_date=day)
                     await rec_repo.add(existing)
-                existing.hrv_ms = snap.hrv_ms
-                existing.resting_hr = snap.resting_hr
-                existing.sleep_hours = snap.sleep_hours
-                existing.sleep_score = snap.sleep_score
-                existing.recovery_score = snap.body_battery
-                existing.source = "garmin"
-                wellness_days += 1
+                # merge_into aplica a precedência entre fontes e nunca escreve
+                # vazio por cima de dado bom (ver services/recovery/merge.py).
+                if merge_into(existing, incoming, "garmin"):
+                    wellness_days += 1
             day += timedelta(days=1)
     except GarminAuthError as exc:
         await _mark_reauth(conn_repo, conn, str(exc))
