@@ -8,6 +8,11 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
+from app.db.migration_utils import (
+    add_column_if_missing,
+    drop_column_if_exists,
+)
+
 from app.models.types import jsonb
 
 revision = "0008"
@@ -17,8 +22,8 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("workouts_planned", sa.Column("adjustment", jsonb(), nullable=True))
+    add_column_if_missing("workouts_planned", sa.Column("adjustment", jsonb(), nullable=True))
 
 
 def downgrade() -> None:
-    op.drop_column("workouts_planned", "adjustment")
+    drop_column_if_exists("workouts_planned", "adjustment")
