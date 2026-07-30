@@ -18,6 +18,7 @@ from app.api.routes import (
     plans,
     races,
     recommendations,
+    whoop,
     workouts,
 )
 from app.bootstrap import (
@@ -69,5 +70,5 @@ async def root() -> dict:
 
 _p = settings.api_prefix
 for r in (auth, athletes, workouts, metrics, imports, races, plans,
-          recommendations, feedback, admin, jobs, calendar, garmin):
+          recommendations, feedback, admin, jobs, calendar, garmin, whoop):
     app.include_router(r.router, prefix=_p)
