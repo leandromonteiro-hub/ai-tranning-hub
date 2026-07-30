@@ -75,3 +75,19 @@ silencioso. Duas formas:
 **Antes de recriar um container em incidente:** `docker logs <container> >
 /tmp/incidente.log`. Recriar descarta os logs antigos — foi o que se perdeu no
 incidente de 2026-07-28.
+
+## Por que o healthcheck do worker não prova quase nada
+
+Desde 2026-07-30 o healthcheck do `worker` só verifica que o processo existe
+(`grep` no `/proc`, 0,16s). Ele foi rebaixado de propósito.
+
+O check anterior (`celery inspect ping`) custava 10,4s contra um timeout de 10s
+— falhava sozinho — e, pior, **teria ficado verde durante o incidente de
+2026-07-28**, quando o worker respondia ao broker e mesmo assim não executava
+task nenhuma. Era também ele que gerava os zumbis daquele incidente, um por
+timeout.
+
+**Quem prova que o worker funciona é o heartbeat desta página**, não o
+`docker compose ps`. Um `unhealthy` no worker significa "o processo morreu"; um
+`aath-heartbeat` vermelho significa "o worker não executa tasks" — que é a
+falha que importa.
