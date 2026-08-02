@@ -13,6 +13,7 @@ class RaceMarker(BaseModel):
     id: uuid.UUID
     name: str
     race_date: date
+    end_date: date | None = None
     days_until: int
 
 
