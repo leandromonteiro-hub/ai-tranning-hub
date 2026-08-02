@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { resolveApiUrl } from "@/lib/config";
+import { publicOrigin, resolveApiUrl } from "@/lib/config";
 import { TOKEN_COOKIE } from "@/lib/session";
 
 /**
@@ -12,7 +12,7 @@ import { TOKEN_COOKIE } from "@/lib/session";
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state");
-  const back = new URL("/conexoes", request.nextUrl.origin);
+  const back = new URL("/conexoes", publicOrigin(request.headers));
 
   const token = (await cookies()).get(TOKEN_COOKIE)?.value;
   if (!token) {
