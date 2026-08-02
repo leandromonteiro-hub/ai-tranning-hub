@@ -35,3 +35,14 @@ def test_starts_at_today_not_before():
     days = allocate_days(_weeks(), ftp=300.0, race_date=date(2026, 1, 18),
                          rest_per_week=1, today=date(2026, 1, 8))
     assert min(d.planned_date for d in days) >= date(2026, 1, 8)
+
+
+def test_allocate_days_pula_dias_bloqueados():
+    """Dias dentro de período de prova não recebem treino (spec 2026-08-02)."""
+    weeks = [WeekSpec(date(2030, 9, 2), BlockType.BUILD, 400.0, False)]  # seg
+    blocked = frozenset({date(2030, 9, 5), date(2030, 9, 6)})
+    out = allocate_days(weeks, ftp=250.0, race_date=date(2030, 9, 30),
+                        rest_per_week=1, today=date(2030, 9, 2), blocked_days=blocked)
+    planned_dates = {d.planned_date for d in out}
+    assert planned_dates.isdisjoint(blocked)
+    assert planned_dates  # ainda prescreve nos dias livres
