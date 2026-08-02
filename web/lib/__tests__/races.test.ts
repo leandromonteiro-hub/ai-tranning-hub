@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { priorityVariant, sortRacesByDate } from '@/lib/races'
+import { endDateFromDays, priorityVariant, racePeriodLabel, sortRacesByDate } from '@/lib/races'
 import type { Race } from '@/lib/types'
 
 const race = (id: string, race_date: string, priority = 'A'): Race => ({
@@ -21,5 +21,26 @@ describe('priorityVariant', () => {
     expect(priorityVariant('A')).toBe('error')
     expect(priorityVariant('B')).toBe('warning')
     expect(priorityVariant('C')).toBe('info')
+  })
+})
+
+describe('endDateFromDays', () => {
+  it('1 dia → null (prova de um dia não envia end_date)', () => {
+    expect(endDateFromDays('2026-09-12', 1)).toBeNull()
+  })
+  it('3 dias → dois dias depois', () => {
+    expect(endDateFromDays('2026-09-12', 3)).toBe('2026-09-14')
+  })
+  it('cruza fim de mês', () => {
+    expect(endDateFromDays('2026-09-30', 2)).toBe('2026-10-01')
+  })
+})
+
+describe('racePeriodLabel', () => {
+  it('um dia mostra só a data', () => {
+    expect(racePeriodLabel({ race_date: '2026-09-12', end_date: null })).toBe('2026-09-12')
+  })
+  it('multi-dia mostra o período', () => {
+    expect(racePeriodLabel({ race_date: '2026-09-12', end_date: '2026-09-14' })).toBe('2026-09-12 – 2026-09-14')
   })
 })

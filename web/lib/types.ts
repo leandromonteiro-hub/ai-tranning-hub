@@ -12,7 +12,7 @@ export type CompletedWorkout = {
   intensity_factor: number | null; avg_power: number | null; normalized_power: number | null
   avg_hr: number | null; kj: number | null; elevation_gain_m: number | null; notes: string | null
 }
-export type RaceMarker = { id: string; name: string; race_date: string; days_until: number }
+export type RaceMarker = { id: string; name: string; race_date: string; end_date?: string | null; days_until: number }
 export type CalendarDay = { date: string; planned: PlannedWorkout[]; completed: CompletedWorkout[]; races: RaceMarker[] }
 export type WeekSummary = {
   week_start: string; ctl: number | null; atl: number | null; tsb: number | null
@@ -68,6 +68,7 @@ export type AthleteProfile = {
 // --- Provas ---
 export type Race = {
   id: string; athlete_id: string; name: string; race_date: string
+  end_date?: string | null
   discipline: string | null; priority: string; location: string | null
   distance_km: number | null; elevation_gain_m: number | null; notes: string | null
   created_at: string
