@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { Flag, Plus } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { useRaces } from '@/lib/hooks'
-import { priorityVariant, sortRacesByDate } from '@/lib/races'
+import { endDateFromDays, priorityVariant, racePeriodLabel, sortRacesByDate } from '@/lib/races'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 
@@ -14,6 +14,7 @@ export function ProvasView() {
   const { data: races, mutate } = useRaces()
   const [name, setName] = useState('')
   const [raceDate, setRaceDate] = useState('')
+  const [days, setDays] = useState('1')
   const [discipline, setDiscipline] = useState('')
   const [priority, setPriority] = useState('A')
   const [showDetails, setShowDetails] = useState(false)
@@ -25,7 +26,7 @@ export function ProvasView() {
   const [saving, setSaving] = useState(false)
 
   function reset() {
-    setName(''); setRaceDate(''); setDiscipline(''); setPriority('A')
+    setName(''); setRaceDate(''); setDays('1'); setDiscipline(''); setPriority('A')
     setLocation(''); setDistanceKm(''); setElevation(''); setNotes(''); setShowDetails(false)
   }
 
@@ -37,6 +38,7 @@ export function ProvasView() {
       const body = {
         name: name.trim(),
         race_date: raceDate,
+        end_date: endDateFromDays(raceDate, Number(days) || 1),
         discipline: discipline || null,
         priority,
         location: location || null,
@@ -75,6 +77,11 @@ export function ProvasView() {
             <label className="text-sm">
               <span className="text-slate-600 dark:text-slate-300">Data</span>
               <input type="date" value={raceDate} onChange={(e) => setRaceDate(e.target.value)} className={inputCls} />
+            </label>
+            <label className="text-sm">
+              <span className="text-slate-600 dark:text-slate-300">Dias (provas de etapas)</span>
+              <input type="number" min={1} max={14} value={days}
+                     onChange={(e) => setDays(e.target.value)} className={inputCls} />
             </label>
             <label className="text-sm">
               <span className="text-slate-600 dark:text-slate-300">Disciplina (ex.: XCO, Maratona)</span>
@@ -144,7 +151,7 @@ export function ProvasView() {
               <tbody>
                 {list.map((r) => (
                   <tr key={r.id} className="border-t border-slate-100 dark:border-slate-800">
-                    <td className="py-1.5 text-slate-700 dark:text-slate-200">{r.race_date}</td>
+                    <td className="py-1.5 text-slate-700 dark:text-slate-200">{racePeriodLabel(r)}</td>
                     <td className="py-1.5 text-slate-700 dark:text-slate-200">
                       <span className="flex items-center gap-1.5"><Flag className="h-3 w-3 text-slate-400" />{r.name}</span>
                     </td>
