@@ -7,6 +7,12 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
+
+from app.db.migration_utils import (
+    create_index_if_missing,
+    create_table_if_missing,
+    create_unique_constraint_if_missing,
+)
 from sqlalchemy.dialects.postgresql import UUID
 
 revision = "0009"
@@ -16,7 +22,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.create_table(
+    create_table_if_missing(
         "garmin_connections",
         sa.Column("id", UUID(as_uuid=True), primary_key=True),
         sa.Column("athlete_id", UUID(as_uuid=True), sa.ForeignKey("athletes.id"), nullable=False),
@@ -32,8 +38,8 @@ def upgrade() -> None:
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_by", UUID(as_uuid=True), nullable=True),
     )
-    op.create_index("ix_garmin_conn_athlete", "garmin_connections", ["athlete_id"])
-    op.create_unique_constraint("uq_garmin_conn_athlete", "garmin_connections", ["athlete_id"])
+    create_index_if_missing("ix_garmin_conn_athlete", "garmin_connections", ["athlete_id"])
+    create_unique_constraint_if_missing("uq_garmin_conn_athlete", "garmin_connections", ["athlete_id"])
 
 
 def downgrade() -> None:
