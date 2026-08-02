@@ -17,6 +17,9 @@ class Race(Base, TenantMixin):
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     race_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    # Último dia da prova para stage races (XCM etc.). NULL = prova de 1 dia.
+    # Convenção de leitura: ultimo_dia = end_date ?? race_date.
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     discipline: Mapped[str | None] = mapped_column(String(32), nullable=True)  # XCO/XCM/...
     priority: Mapped[str] = mapped_column(String(8), default="A")  # A (target) / B / C
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
