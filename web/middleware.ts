@@ -39,6 +39,7 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith("/cadastro/") ||
     pathname === "/api/auth" ||
     pathname.startsWith("/api/auth/") ||
+    pathname === "/privacidade" ||
     pathname === "/logo.svg";
   if (isPublic) return NextResponse.next();
 
