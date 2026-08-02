@@ -15,4 +15,16 @@ describe('CalendarGrid', () => {
     expect(screen.getByText(/WOS Canastra/)).toBeInTheDocument()
     expect(screen.getByText(/8 DAYS/i)).toBeInTheDocument()
   })
+
+  it('durante a prova mostra "DIA X DA PROVA" em vez de contagem negativa', () => {
+    const raceDays: CalendarDay[] = [
+      {
+        date: '2030-09-13', planned: [], completed: [],
+        races: [{ id: 'r1', name: 'Brasil Ride', race_date: '2030-09-12', end_date: '2030-09-14', days_until: -1 }],
+      },
+    ]
+    render(<CalendarGrid days={raceDays} weeks={[]} onOpenWorkout={() => {}} />)
+    expect(screen.getByText(/DIA 2 DA PROVA/)).toBeInTheDocument()
+    expect(screen.queryByText(/-1 DAYS/)).not.toBeInTheDocument()
+  })
 })

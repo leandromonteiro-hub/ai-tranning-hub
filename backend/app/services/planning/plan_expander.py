@@ -66,13 +66,16 @@ def _scaled_endurance(ftp: float, target_tss: float) -> StructuredWorkout:
 
 
 def allocate_days(
-    weeks: list[WeekSpec], ftp: float, race_date: date, rest_per_week: int, today: date
+    weeks: list[WeekSpec], ftp: float, race_date: date, rest_per_week: int, today: date,
+    blocked_days: frozenset[date] = frozenset(),
 ) -> list[DailyPlanned]:
     rest_per_week = max(0, min(3, rest_per_week))
     out: list[DailyPlanned] = []
     for wk in weeks:
         day_dates = [wk.week_start + timedelta(days=i) for i in range(7)]
-        day_dates = [d for d in day_dates if today <= d <= race_date]
+        # Dia de prova nunca recebe treino prescrito (spec 2026-08-02).
+        day_dates = [d for d in day_dates
+                     if today <= d <= race_date and d not in blocked_days]
         if not day_dates:
             continue
         # First rest_per_week days of the (visible) week are rest.
@@ -139,6 +142,7 @@ async def expand_plan_to_daily(session, ctx, athlete_id, plan_id) -> dict:
 
     from sqlalchemy import delete, select
 
+    from app.models.race import Race
     from app.models.training_plan import TrainingPlan, TrainingWeek
     from app.models.workout import WorkoutPlanned
     from app.repositories.metrics_repo import FtpRepository
@@ -175,8 +179,21 @@ async def expand_plan_to_daily(session, ctx, athlete_id, plan_id) -> dict:
     if profile is not None and profile.weekly_days:
         rest = max(0, min(3, 7 - int(profile.weekly_days)))
 
+    # Dias de prova cadastrada (qualquer prioridade) não recebem treino.
+    races = (await session.execute(
+        select(Race).where(Race.athlete_id == athlete_id, Race.deleted_at.is_(None))
+    )).scalars().all()
+    blocked: set[date] = set()
+    for rc in races:
+        last = rc.end_date or rc.race_date
+        dd = rc.race_date
+        while dd <= last:
+            blocked.add(dd)
+            dd += timedelta(days=1)
+
     days = allocate_days(
-        weeks, ftp=ftp, race_date=plan.race_date, rest_per_week=rest, today=today
+        weeks, ftp=ftp, race_date=plan.race_date, rest_per_week=rest, today=today,
+        blocked_days=frozenset(blocked),
     )
 
     # Idempotent replace: drop this plan's existing daily rows, recreate.

@@ -9,9 +9,11 @@ import { mondayOf, weekDays } from '@/lib/weekRange'
 const DOW = ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB', 'DOM']
 
 function RaceFlag({ name, daysUntil }: { name: string; daysUntil: number }) {
+  // days_until <= 0 significa que a prova está em andamento neste dia.
+  const label = daysUntil > 0 ? `${daysUntil} DAYS UNTIL EVENT` : `DIA ${1 - daysUntil} DA PROVA`
   return (
     <div className="rounded border border-blue-300 bg-blue-50 p-1 text-xs text-blue-800 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-300">
-      <div className="font-semibold">{daysUntil} DAYS UNTIL EVENT</div>
+      <div className="font-semibold">{label}</div>
       <div className="flex items-center gap-1 truncate"><Flag className="h-3 w-3" />{name}</div>
     </div>
   )

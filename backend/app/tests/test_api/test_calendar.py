@@ -167,3 +167,38 @@ async def test_calendar_is_tenant_isolated(client, auth_headers, session, athlet
     r = await client.get("/api/v1/calendar?start=2026-05-11&end=2026-05-17", headers=auth_headers)
     assert all(not d["completed"] for d in r.json()["days"])  # não vê treino de outro tenant
     assert all(not d["races"] for d in r.json()["days"])  # não vê prova de outro tenant
+
+
+@pytest.mark.asyncio
+async def test_calendar_prova_multidia_marca_todos_os_dias(client, auth_headers, session, athlete_id):
+    """Prova de 3 dias: marcador em todos os dias do período (spec 2026-08-02)."""
+    session.add(Race(athlete_id=athlete_id, name="Brasil Ride",
+                     race_date=date(2030, 9, 12), end_date=date(2030, 9, 14)))
+    await session.commit()
+
+    r = await client.get("/api/v1/calendar?start=2030-09-11&end=2030-09-15", headers=auth_headers)
+    assert r.status_code == 200
+    days = {d["date"]: d for d in r.json()["days"]}
+
+    # Véspera: contagem regressiva
+    assert days["2030-09-11"]["races"][0]["days_until"] == 1
+    # Dias 1-3 da prova: marcador presente, days_until 0 / -1 / -2
+    assert days["2030-09-12"]["races"][0]["days_until"] == 0
+    assert days["2030-09-13"]["races"][0]["days_until"] == -1
+    assert days["2030-09-14"]["races"][0]["days_until"] == -2
+    # Dia seguinte ao fim: sem marcador
+    assert days["2030-09-15"]["races"] == []
+    # end_date exposto para o front desenhar a faixa
+    assert days["2030-09-12"]["races"][0]["end_date"] == "2030-09-14"
+
+
+@pytest.mark.asyncio
+async def test_calendar_prova_em_andamento_no_inicio_da_janela(client, auth_headers, session, athlete_id):
+    """Prova que começou antes da janela mas ainda está acontecendo aparece."""
+    session.add(Race(athlete_id=athlete_id, name="Stage",
+                     race_date=date(2030, 9, 10), end_date=date(2030, 9, 13)))
+    await session.commit()
+
+    r = await client.get("/api/v1/calendar?start=2030-09-12&end=2030-09-13", headers=auth_headers)
+    days = {d["date"]: d for d in r.json()["days"]}
+    assert days["2030-09-12"]["races"][0]["name"] == "Stage"

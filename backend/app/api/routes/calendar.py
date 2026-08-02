@@ -4,7 +4,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_tenant
@@ -42,10 +42,11 @@ async def get_calendar(
 
     # Fetch upcoming races starting from view start (not capped at end so races
     # just outside the view window still appear as markers on view days).
+    # coalesce: a prova segue relevante enquanto o ÚLTIMO dia não passou.
     races_stmt = (
         select(Race)
         .where(Race.deleted_at.is_(None), Race.athlete_id == ctx.athlete_id,
-               Race.race_date >= start)
+               func.coalesce(Race.end_date, Race.race_date) >= start)
     )
     races = list((await db.execute(races_stmt)).scalars().all())
 
@@ -68,13 +69,15 @@ async def get_calendar(
     d = start
     while d <= end:
         day_completed = by_day_completed.get(d, [])
-        # Each upcoming race appears as a marker on every view day before race day
-        day_races = [rc for rc in races if d < rc.race_date]
+        # Marcador em todo dia até o FIM da prova: antes dela é contagem
+        # regressiva (days_until > 0); durante, days_until <= 0 ("dia 2 de 3").
+        day_races = [rc for rc in races if d <= (rc.end_date or rc.race_date)]
         days.append(CalendarDay(
             date=d,
             planned=[PlannedWorkoutRead.model_validate(p) for p in by_day_planned.get(d, [])],
             completed=[WorkoutCompletedRead.model_validate(c) for c in day_completed],
             races=[RaceMarker(id=rc.id, name=rc.name, race_date=rc.race_date,
+                              end_date=rc.end_date,
                               days_until=(rc.race_date - d).days) for rc in day_races],
         ))
         wk = week_acc.setdefault(_monday(d), {
