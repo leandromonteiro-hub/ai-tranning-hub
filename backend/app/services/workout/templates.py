@@ -82,6 +82,96 @@ def openers(ftp_watts: float) -> StructuredWorkout:
     )
 
 
+def tempo(ftp_watts: float) -> StructuredWorkout:
+    return StructuredWorkout(
+        name="Tempo 2x20",
+        elements=[
+            Step(intensity="warmup", duration_s=600, target=_pwr(0.55, 0.65)),
+            Repeat(count=2, steps=[
+                Step(intensity="active", duration_s=1200, target=_pwr(0.76, 0.85)),
+                Step(intensity="rest", duration_s=300, target=_pwr(0.50, 0.55)),
+            ]),
+            Step(intensity="cooldown", duration_s=600, target=_cooldown_target()),
+        ],
+    )
+
+
+def forca_cadencia(ftp_watts: float) -> StructuredWorkout:
+    return StructuredWorkout(
+        name="Força 4x8 (50-60 rpm)",
+        elements=[
+            Step(intensity="warmup", duration_s=600, target=_pwr(0.55, 0.65)),
+            Repeat(count=4, steps=[
+                Step(intensity="active", duration_s=480, target=_pwr(0.75, 0.85),
+                     cadence_low=50, cadence_high=60,
+                     note="Sentado, cadência 50-60 rpm"),
+                Step(intensity="rest", duration_s=300, target=_pwr(0.50, 0.55)),
+            ]),
+            Step(intensity="cooldown", duration_s=600, target=_cooldown_target()),
+        ],
+    )
+
+
+def z2_sprints(ftp_watts: float) -> StructuredWorkout:
+    return StructuredWorkout(
+        name="Z2 + 6 sprints",
+        elements=[
+            Step(intensity="warmup", duration_s=600, target=_pwr(0.55, 0.60)),
+            Step(intensity="active", duration_s=1800, target=_pwr(0.62, 0.68)),
+            Repeat(count=6, steps=[
+                Step(intensity="active", duration_s=10, target=_pwr(1.50, 2.00),
+                     note="Sprint sentado, cadência máxima"),
+                Step(intensity="rest", duration_s=290, target=_pwr(0.60, 0.65)),
+            ]),
+            Step(intensity="cooldown", duration_s=600, target=_cooldown_target()),
+        ],
+    )
+
+
+def z2_progressivo(ftp_watts: float) -> StructuredWorkout:
+    return StructuredWorkout(
+        name="Z2 progressivo",
+        elements=[
+            Step(intensity="warmup", duration_s=600, target=_pwr(0.55, 0.60)),
+            Step(intensity="active", duration_s=1200, target=_pwr(0.60, 0.65)),
+            Step(intensity="active", duration_s=1200, target=_pwr(0.65, 0.70)),
+            Step(intensity="active", duration_s=1200, target=_pwr(0.70, 0.75)),
+            Step(intensity="cooldown", duration_s=600, target=_cooldown_target()),
+        ],
+    )
+
+
+def long_ride(ftp_watts: float, duration_s: int = 10800) -> StructuredWorkout:
+    active = max(3600, duration_s - 1200)
+    return StructuredWorkout(
+        name="Longão Z2",
+        elements=[
+            Step(intensity="warmup", duration_s=600, target=_pwr(0.55, 0.60)),
+            Step(intensity="active", duration_s=active, target=_pwr(0.62, 0.68)),
+            Step(intensity="cooldown", duration_s=600, target=_cooldown_target()),
+        ],
+    )
+
+
+def long_ride_tempo(ftp_watts: float, duration_s: int = 10800) -> StructuredWorkout:
+    # 3 blocos de 15min Z3 com 5min Z2 entre eles; o resto é Z2 puro.
+    tempo_total = 3 * 900 + 3 * 300
+    z2 = max(1800, duration_s - 1200 - tempo_total)
+    return StructuredWorkout(
+        name="Longão com tempo 3x15",
+        elements=[
+            Step(intensity="warmup", duration_s=600, target=_pwr(0.55, 0.60)),
+            Step(intensity="active", duration_s=z2 // 2, target=_pwr(0.62, 0.68)),
+            Repeat(count=3, steps=[
+                Step(intensity="active", duration_s=900, target=_pwr(0.78, 0.84)),
+                Step(intensity="rest", duration_s=300, target=_pwr(0.62, 0.68)),
+            ]),
+            Step(intensity="active", duration_s=z2 - z2 // 2, target=_pwr(0.62, 0.68)),
+            Step(intensity="cooldown", duration_s=600, target=_cooldown_target()),
+        ],
+    )
+
+
 TEMPLATES: dict[BlockType, Callable[[float], StructuredWorkout]] = {
     BlockType.BASE: endurance,
     BlockType.BUILD: sweet_spot,
