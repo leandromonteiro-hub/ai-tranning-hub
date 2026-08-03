@@ -249,7 +249,7 @@ async def expand_plan_to_daily(session, ctx, athlete_id, plan_id) -> dict:
     profile = await fetch_profile(session, athlete_id)
     rest = 1
     if profile is not None and profile.weekly_days:
-        rest = max(0, min(3, 7 - int(profile.weekly_days)))
+        rest = max(1, min(3, 7 - int(profile.weekly_days)))
 
     # Dias de prova cadastrada (qualquer prioridade) não recebem treino.
     races = (await session.execute(
@@ -263,7 +263,7 @@ async def expand_plan_to_daily(session, ctx, athlete_id, plan_id) -> dict:
             blocked.add(dd)
             dd += timedelta(days=1)
 
-    days = allocate_days(
+    days, tss_dropped = allocate_days(
         weeks, ftp=ftp, race_date=plan.race_date, rest_per_week=rest, today=today,
         blocked_days=frozenset(blocked),
     )
@@ -275,7 +275,38 @@ async def expand_plan_to_daily(session, ctx, athlete_id, plan_id) -> dict:
             WorkoutPlanned.source_plan_id == plan_id,
         )
     )
+
+    # Dias ocupados por OUTROS planos ativos: prova mais próxima vence o dia.
+    others = (await session.execute(
+        select(TrainingPlan).where(
+            TrainingPlan.athlete_id == athlete_id,
+            TrainingPlan.id != plan_id,
+            TrainingPlan.deleted_at.is_(None),
+        )
+    )).scalars().all()
+    conflict: dict = {}
+    if others:
+        by_id = {p.id: p for p in others}
+        rows = (await session.execute(
+            select(WorkoutPlanned).where(
+                WorkoutPlanned.athlete_id == athlete_id,
+                WorkoutPlanned.source_plan_id.in_(list(by_id)),
+                WorkoutPlanned.deleted_at.is_(None),
+            )
+        )).scalars().all()
+        for r in rows:
+            conflict[r.planned_date] = (r.id, by_id[r.source_plan_id].race_date)
+
+    written = 0
     for d in days:
+        hit = conflict.get(d.planned_date)
+        if hit is not None:
+            other_id, other_race = hit
+            if other_race is not None and other_race < plan.race_date:
+                continue  # o outro plano atende prova mais próxima: dia é dele
+            await session.execute(
+                delete(WorkoutPlanned).where(WorkoutPlanned.id == other_id)
+            )
         session.add(WorkoutPlanned(
             athlete_id=athlete_id, created_by=athlete_id,
             planned_date=d.planned_date, name=d.structure.get("name", "Treino"),
@@ -283,10 +314,12 @@ async def expand_plan_to_daily(session, ctx, athlete_id, plan_id) -> dict:
             planned_tss=d.planned_tss, structure=d.structure, description=d.description,
             source_plan_id=plan_id,
         ))
+        written += 1
     await session.flush()
     return {
-        "days": len(days),
+        "days": written,
         "tss_total": round(sum(d.planned_tss for d in days), 1),
+        "tss_dropped": tss_dropped,
         "start": str(min((d.planned_date for d in days), default=today)),
         "end": str(max((d.planned_date for d in days), default=today)),
     }

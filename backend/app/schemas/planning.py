@@ -53,6 +53,7 @@ class TrainingPlanRead(BaseModel):
 class PlanExpandResult(BaseModel):
     days: int
     tss_total: float
+    tss_dropped: float = 0.0
     start: str
     end: str
 
