@@ -3,7 +3,9 @@ import { useState } from 'react'
 import { Flag, Plus } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { useRaces } from '@/lib/hooks'
-import { endDateFromDays, priorityVariant, racePeriodLabel, sortRacesByDate } from '@/lib/races'
+import { endDateFromDays, isFutureRace, priorityVariant, racePeriodLabel, sortRacesByDate } from '@/lib/races'
+import { todayIso } from '@/lib/dateUtils'
+import type { Race } from '@/lib/types'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 
@@ -24,6 +26,7 @@ export function ProvasView() {
   const [notes, setNotes] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [gen, setGen] = useState<Record<string, { status: 'busy' | 'ok' | 'error'; days?: number }>>({})
 
   function reset() {
     setName(''); setRaceDate(''); setDays('1'); setDiscipline(''); setPriority('A')
@@ -58,6 +61,30 @@ export function ProvasView() {
       setError('Não foi possível cadastrar a prova.')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function generatePlan(r: Race) {
+    setGen((g) => ({ ...g, [r.id]: { status: 'busy' } }))
+    try {
+      const res = await apiFetch('plans/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: `Plano — ${r.name}`,
+          race_date: r.race_date,
+          target_race_id: r.id,
+          priority: r.priority,
+        }),
+      })
+      if (!res.ok) throw new Error()
+      const plan = await res.json()
+      const ex = await apiFetch(`plans/${plan.id}/expand`, { method: 'POST' })
+      if (!ex.ok) throw new Error()
+      const result = await ex.json()
+      setGen((g) => ({ ...g, [r.id]: { status: 'ok', days: result.days } }))
+    } catch {
+      setGen((g) => ({ ...g, [r.id]: { status: 'error' } }))
     }
   }
 
@@ -145,7 +172,7 @@ export function ProvasView() {
               <thead>
                 <tr className="text-left text-xs text-slate-400">
                   <th className="font-normal">Data</th><th className="font-normal">Prova</th>
-                  <th className="font-normal">Prioridade</th><th className="font-normal">Disciplina</th><th className="font-normal">Local</th>
+                  <th className="font-normal">Prioridade</th><th className="font-normal">Disciplina</th><th className="font-normal">Local</th><th className="font-normal">Plano</th>
                 </tr>
               </thead>
               <tbody>
@@ -158,6 +185,29 @@ export function ProvasView() {
                     <td className="py-1.5"><Badge variant={priorityVariant(r.priority)}>{r.priority}</Badge></td>
                     <td className="py-1.5 text-slate-500">{r.discipline || '—'}</td>
                     <td className="py-1.5 text-slate-500">{r.location || '—'}</td>
+                    <td className="py-1.5">
+                      {isFutureRace(r, todayIso()) && (
+                        gen[r.id]?.status === 'ok' ? (
+                          <span className="text-xs text-emerald-600 dark:text-emerald-400">
+                            Plano gerado: {gen[r.id].days} treinos · <a href="/plano" className="underline">Ver plano</a>
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => generatePlan(r)}
+                              disabled={gen[r.id]?.status === 'busy'}
+                              className="rounded-lg border border-blue-300 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50 dark:border-blue-500/40 dark:text-blue-300 dark:hover:bg-blue-500/10"
+                            >
+                              {gen[r.id]?.status === 'busy' ? 'Gerando…' : 'Gerar plano'}
+                            </button>
+                            {gen[r.id]?.status === 'error' && (
+                              <span className="text-xs text-red-600">Não foi possível gerar o plano.</span>
+                            )}
+                          </span>
+                        )
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
