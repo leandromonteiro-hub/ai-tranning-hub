@@ -27,4 +27,15 @@ describe('CalendarGrid', () => {
     expect(screen.getByText(/DIA 2 DA PROVA/)).toBeInTheDocument()
     expect(screen.queryByText(/-1 DAYS/)).not.toBeInTheDocument()
   })
+
+  it('não mostra bandeira de prova a mais de 30 dias', () => {
+    const farDays: CalendarDay[] = [
+      {
+        date: '2026-05-12', planned: [], completed: [],
+        races: [{ id: 'r9', name: 'Cape Epic', race_date: '2026-07-20', days_until: 69 }],
+      },
+    ]
+    render(<CalendarGrid days={farDays} weeks={[]} onOpenWorkout={() => {}} />)
+    expect(screen.queryByText(/Cape Epic/)).not.toBeInTheDocument()
+  })
 })

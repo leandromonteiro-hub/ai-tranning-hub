@@ -24,3 +24,17 @@ export function endDateFromDays(raceDate: string, days: number): string | null {
 export function racePeriodLabel(race: { race_date: string; end_date?: string | null }): string {
   return race.end_date ? `${race.race_date} – ${race.end_date}` : race.race_date
 }
+
+/** Bandeira de contagem só entra no radar a 30 dias da prova (<=0 = durante). */
+const RACE_FLAG_HORIZON_DAYS = 30
+export function showRaceFlag(daysUntil: number): boolean {
+  return daysUntil <= RACE_FLAG_HORIZON_DAYS
+}
+
+/** Prova ainda relevante: o último dia (end_date ?? race_date) não passou. */
+export function isFutureRace(
+  race: { race_date: string; end_date?: string | null },
+  todayIso: string,
+): boolean {
+  return (race.end_date ?? race.race_date) >= todayIso
+}

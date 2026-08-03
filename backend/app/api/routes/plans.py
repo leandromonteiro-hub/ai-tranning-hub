@@ -6,7 +6,7 @@ from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_tenant
@@ -45,6 +45,27 @@ async def generate(
     ctx: TenantContext = Depends(get_tenant),
     db: AsyncSession = Depends(get_db),
 ):
+    # Regenerar substitui: arquiva o plano ativo da mesma prova e apaga os
+    # treinos FUTUROS dele (os passados ficam para o histórico de compliance).
+    if body.target_race_id is not None:
+        old_plans = (await db.execute(
+            select(TrainingPlan).where(
+                TrainingPlan.athlete_id == ctx.athlete_id,
+                TrainingPlan.target_race_id == body.target_race_id,
+                TrainingPlan.deleted_at.is_(None),
+            )
+        )).scalars().all()
+        for old in old_plans:
+            old.deleted_at = datetime.now(timezone.utc)
+            db.add(old)
+            await db.execute(
+                delete(WorkoutPlanned).where(
+                    WorkoutPlanned.athlete_id == ctx.athlete_id,
+                    WorkoutPlanned.source_plan_id == old.id,
+                    WorkoutPlanned.planned_date >= date.today(),
+                )
+            )
+
     plan = await generate_plan(
         db, ctx, ctx.athlete_id,
         race_date=body.race_date, name=body.name,

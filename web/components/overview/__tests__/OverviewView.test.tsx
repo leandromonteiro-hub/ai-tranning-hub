@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { OverviewView } from '@/components/overview/OverviewView'
 import { useIntelligence, useCalendar, useRecommendations } from '@/lib/hooks'
+import { todayIso } from '@/lib/dateUtils'
 import { mondayOf } from '@/lib/weekRange'
 
 vi.mock('@/lib/hooks', () => ({
@@ -45,7 +46,8 @@ describe('OverviewView', () => {
   })
 
   it('Próximo treino: mostra o próximo planejado', () => {
-    const today = new Date().toISOString().slice(0, 10)
+    // todayIso() (fuso LOCAL) — toISOString (UTC) fazia o teste falhar após ~21h no Brasil.
+    const today = todayIso()
     setup({ cal: { days: [{ date: today, planned: [{
       id: 'x', planned_date: today, name: 'Endurance Z2', workout_type: 'endurance',
       planned_duration_s: 5400, planned_tss: 70, description: null, structure: null, adjustment: null,
@@ -61,7 +63,8 @@ describe('OverviewView', () => {
   })
 
   it('Semana + recomendação: totais e resumo', () => {
-    const today = new Date().toISOString().slice(0, 10)
+    // todayIso() (fuso LOCAL) — toISOString (UTC) fazia o teste falhar após ~21h no Brasil.
+    const today = todayIso()
     setup({
       cal: { days: [], weeks: [{
         week_start: mondayOf(today), ctl: 50, atl: 40, tsb: 10,
@@ -81,7 +84,8 @@ describe('OverviewView', () => {
   })
 
   it('Semana: duração zero mostra 0min (não "—")', () => {
-    const today = new Date().toISOString().slice(0, 10)
+    // todayIso() (fuso LOCAL) — toISOString (UTC) fazia o teste falhar após ~21h no Brasil.
+    const today = todayIso()
     setup({ cal: { days: [], weeks: [{
       week_start: mondayOf(today), ctl: 0, atl: 0, tsb: 0,
       total_duration_s: 0, total_tss: 0, total_distance_m: 0, total_elevation_m: 0, total_kj: 0,

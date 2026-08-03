@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { endDateFromDays, priorityVariant, racePeriodLabel, sortRacesByDate } from '@/lib/races'
+import { endDateFromDays, isFutureRace, priorityVariant, racePeriodLabel, showRaceFlag, sortRacesByDate } from '@/lib/races'
 import type { Race } from '@/lib/types'
 
 const race = (id: string, race_date: string, priority = 'A'): Race => ({
@@ -42,5 +42,28 @@ describe('racePeriodLabel', () => {
   })
   it('multi-dia mostra o período', () => {
     expect(racePeriodLabel({ race_date: '2026-09-12', end_date: '2026-09-14' })).toBe('2026-09-12 – 2026-09-14')
+  })
+})
+
+describe('showRaceFlag', () => {
+  it('esconde prova a mais de 30 dias', () => {
+    expect(showRaceFlag(31)).toBe(false)
+    expect(showRaceFlag(60)).toBe(false)
+  })
+  it('mostra a 30 dias ou menos, incluindo durante a prova', () => {
+    expect(showRaceFlag(30)).toBe(true)
+    expect(showRaceFlag(1)).toBe(true)
+    expect(showRaceFlag(0)).toBe(true)
+    expect(showRaceFlag(-2)).toBe(true)
+  })
+})
+
+describe('isFutureRace', () => {
+  it('prova de amanhã é futura; de ontem não é', () => {
+    expect(isFutureRace({ race_date: '2026-08-03', end_date: null }, '2026-08-02')).toBe(true)
+    expect(isFutureRace({ race_date: '2026-08-01', end_date: null }, '2026-08-02')).toBe(false)
+  })
+  it('prova multi-dia em andamento ainda conta como futura', () => {
+    expect(isFutureRace({ race_date: '2026-08-01', end_date: '2026-08-03' }, '2026-08-02')).toBe(true)
   })
 })
