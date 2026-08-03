@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
 import pytest_asyncio
@@ -81,12 +82,13 @@ async def test_regenerar_substitui_plano_da_mesma_prova(env):
     r1 = await env.client.post("/api/v1/plans/generate", json=body, headers=headers)
     assert r1.status_code == 201, r1.text
     plan1 = r1.json()["id"]
+    plan1_uuid = UUID(plan1)
     ex = await env.client.post(f"/api/v1/plans/{plan1}/expand", headers=headers)
     assert ex.status_code == 201, ex.text
 
     # Treino PASSADO do plano 1 (histórico) — não pode ser apagado na regeneração.
     async with env.maker() as s:
-        s.add(WorkoutPlanned(athlete_id=env.aid, source_plan_id=plan1,
+        s.add(WorkoutPlanned(athlete_id=env.aid, source_plan_id=plan1_uuid,
                              planned_date=date.today() - timedelta(days=1),
                              name="Antigo", workout_type=WorkoutType.ENDURANCE,
                              planned_tss=50, planned_duration_s=3600))
@@ -98,11 +100,11 @@ async def test_regenerar_substitui_plano_da_mesma_prova(env):
     assert plan2 != plan1
 
     async with env.maker() as s:
-        old = (await s.execute(select(TrainingPlan).where(TrainingPlan.id == plan1))).scalar_one()
+        old = (await s.execute(select(TrainingPlan).where(TrainingPlan.id == plan1_uuid))).scalar_one()
         assert old.deleted_at is not None  # arquivado
 
         rows = (await s.execute(select(WorkoutPlanned).where(
-            WorkoutPlanned.source_plan_id == plan1))).scalars().all()
+            WorkoutPlanned.source_plan_id == plan1_uuid))).scalars().all()
         # Só sobra o treino passado; os futuros do plano antigo foram apagados.
         assert [w.name for w in rows] == ["Antigo"]
 
