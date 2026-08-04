@@ -46,6 +46,28 @@ def test_long_ride_tempo_tem_3_blocos_e_duracao_pedida():
     assert len(reps) == 1 and reps[0].count == 3
 
 
+def test_progressao_por_step():
+    assert templates.sweet_spot(250.0, step=0).name == "Sweet Spot 3x12"
+    assert templates.sweet_spot(250.0, step=1).name == "Sweet Spot 4x12"
+    assert templates.sweet_spot(250.0, step=2).name == "Sweet Spot 5x12"
+    assert templates.sweet_spot(250.0, step=9).name == "Sweet Spot 5x12"  # trava no teto
+    assert templates.vo2max(250.0, step=1).name == "VO2max 6x4"
+    assert templates.tempo(250.0, step=1).name == "Tempo 2x25"
+    assert templates.tempo(250.0, step=2).name == "Tempo 3x20"
+    assert templates.forca_cadencia(250.0, step=2).name == "Força 6x8 (50-60 rpm)"
+    # Degrau maior = mais TSS (sobrecarga progressiva).
+    assert (analysis.estimated_tss(templates.vo2max(250.0, step=2))
+            > analysis.estimated_tss(templates.vo2max(250.0, step=0)))
+
+
+def test_long_ride_giros_duracao_e_cadencia():
+    w = templates.long_ride_giros(250.0, duration_s=4 * 3600)
+    assert analysis.total_duration_s(w) == 4 * 3600
+    reps = [el for el in w.elements if hasattr(el, "count")]
+    assert len(reps) == 1 and reps[0].count == 6
+    assert reps[0].steps[0].cadence_low == 100
+
+
 def test_templates_serializaveis():
     for w in (templates.tempo(200.0), templates.forca_cadencia(200.0),
               templates.z2_sprints(200.0), templates.z2_progressivo(200.0),

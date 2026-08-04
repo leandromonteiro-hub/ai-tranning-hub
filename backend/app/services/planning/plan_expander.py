@@ -115,9 +115,19 @@ def _scaled_variant(fn, ftp: float, target_tss: float, cap_s: int) -> Structured
     return w
 
 
-def _long_for_tss(block: BlockType, ftp: float, target_tss: float) -> StructuredWorkout:
-    """Longão (Z2 puro; com tempo no BUILD) com duração dimensionada pelo TSS alvo."""
-    fn = templates.long_ride_tempo if block == BlockType.BUILD else templates.long_ride
+def _long_for_tss(block: BlockType, ftp: float, target_tss: float,
+                  week_i: int = 0) -> StructuredWorkout:
+    """Longão com duração dimensionada pelo TSS alvo.
+
+    BUILD usa a variante com blocos de tempo; na BASE o Z2 puro alterna com o
+    "com giros" semana a semana (rev. 3 2026-08-04); PEAK fica no Z2 puro.
+    """
+    if block == BlockType.BUILD:
+        fn = templates.long_ride_tempo
+    elif block == BlockType.BASE and week_i % 2 == 1:
+        fn = templates.long_ride_giros
+    else:
+        fn = templates.long_ride
     probe = fn(ftp, _LONG_MIN_S)
     if_ = analysis.intensity_factor(probe)
     dur = _LONG_MIN_S if if_ <= 0 else int(target_tss / ((if_ ** 2) * 100) * 3600)
@@ -155,8 +165,17 @@ def allocate_days(
     rest_days = set(_REST_ORDER[:rest])
     out: list[DailyPlanned] = []
     dropped_total = 0.0
+    # Degrau de progressão dos intervalados: avança a cada semana de carga do
+    # mesmo bloco; reseta no deload ou na troca de bloco (rev. 3 2026-08-04).
+    step = 0
+    prev_block: BlockType | None = None
 
     for i, wk in enumerate(weeks):
+        recovery_week = wk.is_recovery_week or wk.block_type == BlockType.RECOVERY
+        if recovery_week or wk.block_type != prev_block:
+            step = 0
+        prev_block = wk.block_type
+
         visible = [wk.week_start + timedelta(days=j) for j in range(7)]
         # Dia de prova nunca recebe treino prescrito (spec 2026-08-02).
         visible = [d for d in visible if today <= d <= race_date and d not in blocked_days]
@@ -199,7 +218,7 @@ def allocate_days(
         for d, r in roles.items():
             if r in ("q1", "q2"):
                 fn, wtype = _QUALITY[wk.block_type][r]
-                assigned[d] = (fn(ftp), wtype)
+                assigned[d] = (fn(ftp, step), wtype)
             elif r == "openers":
                 assigned[d] = (templates.openers(ftp), WorkoutType.VO2MAX)
             elif r == "easy":
@@ -209,14 +228,14 @@ def allocate_days(
             return sum(analysis.estimated_tss(w) for w, _ in assigned.values())
 
         loading = wk.block_type in _LONG_SHARE and not wk.is_recovery_week
-        recovery_week = wk.is_recovery_week or wk.block_type == BlockType.RECOVERY
 
         if loading:
             # Ordem de absorção (rev. 2): longão 40% → quarta flex → sexta Z2
             # leve → extensões Z2 de ter/qui → longão de novo → descarte.
             if long_day is not None:
                 assigned[long_day] = (
-                    _long_for_tss(wk.block_type, ftp, wk.planned_tss * _LONG_SHARE[wk.block_type]),
+                    _long_for_tss(wk.block_type, ftp,
+                                  wk.planned_tss * _LONG_SHARE[wk.block_type], week_i=i),
                     WorkoutType.ENDURANCE,
                 )
             if flex_day is not None:
@@ -238,17 +257,18 @@ def allocate_days(
                         _scaled_endurance_capped(ftp, cur + leftover / len(easy_days), _FRIDAY_CAP_S),
                         WorkoutType.ENDURANCE,
                     )
+            # Ondulação (rev. 3): só o "dia grande" da semana ganha a extensão
+            # Z2; o outro dia de qualidade fica seco. Alterna ter ↔ qui.
             leftover = wk.planned_tss - _delivered()
             if leftover > _ABSORB_MIN_TSS and quality_days:
-                per = leftover / len(quality_days)
-                for d in quality_days:
-                    w, wtype = assigned[d]
-                    assigned[d] = (_pad_with_z2(w, per, _MIDWEEK_CAP_S), wtype)
+                big = sorted(quality_days)[i % len(quality_days)]
+                w, wtype = assigned[big]
+                assigned[big] = (_pad_with_z2(w, leftover, _MIDWEEK_CAP_S), wtype)
             leftover = wk.planned_tss - _delivered()
             if leftover > 0 and long_day is not None:
                 cur = analysis.estimated_tss(assigned[long_day][0])
                 assigned[long_day] = (
-                    _long_for_tss(wk.block_type, ftp, cur + leftover),
+                    _long_for_tss(wk.block_type, ftp, cur + leftover, week_i=i),
                     WorkoutType.ENDURANCE,
                 )
             dropped_total += max(0.0, wk.planned_tss - _delivered())
@@ -271,6 +291,9 @@ def allocate_days(
         for d in sorted(assigned):
             w, wtype = assigned[d]
             out.append(_daily_from(d, _with_meta(w, ftp), wtype))
+
+        if not recovery_week:
+            step += 1
     return out, round(dropped_total, 1)
 
 

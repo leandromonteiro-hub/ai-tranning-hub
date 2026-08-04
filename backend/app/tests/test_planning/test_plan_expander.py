@@ -165,6 +165,56 @@ def test_prova_no_domingo_tem_openers_na_sexta():
     assert race not in by_date
 
 
+def test_progressao_intervalados_dentro_do_bloco():
+    weeks = [WeekSpec(MON, BlockType.BASE, 650.0, False),
+             WeekSpec(date(2026, 1, 12), BlockType.BASE, 700.0, False),
+             WeekSpec(date(2026, 1, 19), BlockType.BASE, 750.0, False)]
+    days, _ = allocate_days(weeks, ftp=FTP, race_date=RACE_FAR,
+                            rest_per_week=1, today=MON)
+    tercas = sorted((d for d in days if d.planned_date.weekday() == 1),
+                    key=lambda d: d.planned_date)
+    assert [t.structure["name"] for t in tercas] == [
+        "Sweet Spot 3x12", "Sweet Spot 4x12", "Sweet Spot 5x12"]
+
+
+def test_progressao_reseta_apos_deload():
+    weeks = [WeekSpec(MON, BlockType.BASE, 650.0, False),
+             WeekSpec(date(2026, 1, 12), BlockType.BASE, 700.0, False),
+             WeekSpec(date(2026, 1, 19), BlockType.RECOVERY, 400.0, True),
+             WeekSpec(date(2026, 1, 26), BlockType.BASE, 700.0, False)]
+    days, _ = allocate_days(weeks, ftp=FTP, race_date=RACE_FAR,
+                            rest_per_week=1, today=MON)
+    ultima_terca = max((d for d in days if d.planned_date.weekday() == 1),
+                       key=lambda d: d.planned_date)
+    assert ultima_terca.structure["name"] == "Sweet Spot 3x12"  # voltou ao degrau 0
+
+
+def test_ondulacao_dia_grande_alterna():
+    weeks = [WeekSpec(MON, BlockType.BASE, 900.0, False),
+             WeekSpec(date(2026, 1, 12), BlockType.BASE, 900.0, False)]
+    days, _ = allocate_days(weeks, ftp=FTP, race_date=RACE_FAR,
+                            rest_per_week=1, today=MON)
+    w1 = {d.planned_date.weekday(): d for d in days if d.planned_date < date(2026, 1, 12)}
+    w2 = {d.planned_date.weekday(): d for d in days if d.planned_date >= date(2026, 1, 12)}
+    # Semana 1: ter é o dia grande; qui fica só com o trabalho principal.
+    assert w1[1].planned_duration_s > 150 * 60
+    assert w1[3].planned_duration_s < 120 * 60
+    # Semana 2: inverte.
+    assert w2[1].planned_duration_s < 120 * 60
+    assert w2[3].planned_duration_s > 150 * 60
+
+
+def test_longao_alterna_giros_na_base():
+    weeks = [WeekSpec(MON, BlockType.BASE, 650.0, False),
+             WeekSpec(date(2026, 1, 12), BlockType.BASE, 700.0, False)]
+    days, _ = allocate_days(weeks, ftp=FTP, race_date=RACE_FAR,
+                            rest_per_week=1, today=MON)
+    sabados = sorted((d for d in days if d.planned_date.weekday() == 5),
+                     key=lambda d: d.planned_date)
+    assert sabados[0].structure["name"] == "Longão Z2"
+    assert sabados[1].structure["name"] == "Longão com giros"
+
+
 def test_dias_bloqueados_continuam_pulados():
     blocked = frozenset({date(2026, 1, 7), date(2026, 1, 8)})
     days, _ = allocate_days([_base_week()], ftp=FTP, race_date=RACE_FAR,

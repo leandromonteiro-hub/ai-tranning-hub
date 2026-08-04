@@ -40,12 +40,18 @@ def endurance(ftp_watts: float) -> StructuredWorkout:
     )
 
 
-def sweet_spot(ftp_watts: float) -> StructuredWorkout:
+def _step_clamp(step: int) -> int:
+    """Degrau de progressão semanal dentro do bloco (rev. 3 2026-08-04)."""
+    return min(max(step, 0), 2)
+
+
+def sweet_spot(ftp_watts: float, step: int = 0) -> StructuredWorkout:
+    reps = 3 + _step_clamp(step)
     return StructuredWorkout(
-        name="Sweet Spot 3x12",
+        name=f"Sweet Spot {reps}x12",
         elements=[
             Step(intensity="warmup", duration_s=600, target=_pwr(0.55, 0.65)),
-            Repeat(count=3, steps=[
+            Repeat(count=reps, steps=[
                 Step(intensity="active", duration_s=720, target=_pwr(0.88, 0.93)),
                 Step(intensity="rest", duration_s=300, target=_pwr(0.50, 0.55)),
             ]),
@@ -54,12 +60,13 @@ def sweet_spot(ftp_watts: float) -> StructuredWorkout:
     )
 
 
-def vo2max(ftp_watts: float) -> StructuredWorkout:
+def vo2max(ftp_watts: float, step: int = 0) -> StructuredWorkout:
+    reps = 5 + _step_clamp(step)
     return StructuredWorkout(
-        name="VO2max 5x4",
+        name=f"VO2max {reps}x4",
         elements=[
             Step(intensity="warmup", duration_s=900, target=_pwr(0.55, 0.70)),
-            Repeat(count=5, steps=[
+            Repeat(count=reps, steps=[
                 Step(intensity="active", duration_s=240, target=_pwr(1.10, 1.18)),
                 Step(intensity="rest", duration_s=240, target=_pwr(0.45, 0.50)),
             ]),
@@ -82,13 +89,14 @@ def openers(ftp_watts: float) -> StructuredWorkout:
     )
 
 
-def tempo(ftp_watts: float) -> StructuredWorkout:
+def tempo(ftp_watts: float, step: int = 0) -> StructuredWorkout:
+    reps, dur = [(2, 1200), (2, 1500), (3, 1200)][_step_clamp(step)]
     return StructuredWorkout(
-        name="Tempo 2x20",
+        name=f"Tempo {reps}x{dur // 60}",
         elements=[
             Step(intensity="warmup", duration_s=600, target=_pwr(0.55, 0.65)),
-            Repeat(count=2, steps=[
-                Step(intensity="active", duration_s=1200, target=_pwr(0.76, 0.85)),
+            Repeat(count=reps, steps=[
+                Step(intensity="active", duration_s=dur, target=_pwr(0.76, 0.85)),
                 Step(intensity="rest", duration_s=300, target=_pwr(0.50, 0.55)),
             ]),
             Step(intensity="cooldown", duration_s=600, target=_cooldown_target()),
@@ -96,12 +104,13 @@ def tempo(ftp_watts: float) -> StructuredWorkout:
     )
 
 
-def forca_cadencia(ftp_watts: float) -> StructuredWorkout:
+def forca_cadencia(ftp_watts: float, step: int = 0) -> StructuredWorkout:
+    reps = 4 + _step_clamp(step)
     return StructuredWorkout(
-        name="Força 4x8 (50-60 rpm)",
+        name=f"Força {reps}x8 (50-60 rpm)",
         elements=[
             Step(intensity="warmup", duration_s=600, target=_pwr(0.55, 0.65)),
-            Repeat(count=4, steps=[
+            Repeat(count=reps, steps=[
                 Step(intensity="active", duration_s=480, target=_pwr(0.75, 0.85),
                      cadence_low=50, cadence_high=60,
                      note="Sentado, cadência 50-60 rpm"),
@@ -148,6 +157,27 @@ def long_ride(ftp_watts: float, duration_s: int = 10800) -> StructuredWorkout:
         elements=[
             Step(intensity="warmup", duration_s=600, target=_pwr(0.55, 0.60)),
             Step(intensity="active", duration_s=active, target=_pwr(0.62, 0.68)),
+            Step(intensity="cooldown", duration_s=600, target=_cooldown_target()),
+        ],
+    )
+
+
+def long_ride_giros(ftp_watts: float, duration_s: int = 10800) -> StructuredWorkout:
+    # Longão Z2 com 6 giros de 3min a 100-110 rpm (2min de pedalada normal entre eles).
+    giros_total = 6 * (180 + 120)
+    z2 = max(1800, duration_s - 1200 - giros_total)
+    return StructuredWorkout(
+        name="Longão com giros",
+        elements=[
+            Step(intensity="warmup", duration_s=600, target=_pwr(0.55, 0.60)),
+            Step(intensity="active", duration_s=z2 // 2, target=_pwr(0.62, 0.68)),
+            Repeat(count=6, steps=[
+                Step(intensity="active", duration_s=180, target=_pwr(0.62, 0.68),
+                     cadence_low=100, cadence_high=110,
+                     note="Giro leve, 100-110 rpm"),
+                Step(intensity="rest", duration_s=120, target=_pwr(0.62, 0.68)),
+            ]),
+            Step(intensity="active", duration_s=z2 - z2 // 2, target=_pwr(0.62, 0.68)),
             Step(intensity="cooldown", duration_s=600, target=_cooldown_target()),
         ],
     )
