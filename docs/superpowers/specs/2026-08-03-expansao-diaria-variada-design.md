@@ -154,3 +154,31 @@ Esqueletos revisados (sem domingo):
 
 \* vira descanso quando `rest ≥ 2`; qua vira descanso quando `rest ≥ 3`.
 Semana da prova: regra do openers (prova−2) inalterada.
+
+---
+
+## Revisão 2 — 2026-08-04 (volume semanal baixo demais)
+
+Diagnóstico: a periodização pede ~CTL×7 de TSS semanal (~830 com CTL 119),
+mas os tetos diários entregavam só ~520-550 (~11,5h) — o resto caía em
+`tss_dropped` e a forma **cairia**. Gargalo principal: dias de qualidade de
+~1h10 sem volume ao redor. Decisões com o Leandro:
+
+1. **Dias de qualidade (ter/qui) estendem com Z2** após o trabalho principal:
+   um bloco Z2 (0,62-0,68) é apenso antes da volta à calma, dimensionado pelo
+   TSS que sobrou, até o teto de **3h30** por dia.
+2. **Sexta em semana de carga**: se sobra TSS, o regenerativo de 45 min vira
+   **Z2 leve de até 2h** (`endurance` escalado). Sem sobra (e no taper),
+   continua regenerativo de 45 min.
+3. **Deload entrega o alvo** (~60% da semana anterior): os dias de Z2 do
+   deload (qua e sáb) escalam até **3h/dia** para atingir o TSS planejado da
+   semana, em vez das durações fixas de ~45-75 min.
+4. **Teto do longão CONFIRMADO em 5h** — o excedente vai para a semana, não
+   para o sábado.
+
+**Ordem de absorção do TSS semanal (semana de carga):** longão 40% (cap 5h) →
+quarta flex (cap 3h30) → sexta Z2 leve (cap 2h) → extensões Z2 de ter/qui
+(cap 3h30 cada) → longão de novo (até 5h) → `tss_dropped`.
+
+Teto de semana resultante: ~16h / ~780-820 TSS — compatível com manter e
+construir CTL ~119.
