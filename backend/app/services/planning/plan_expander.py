@@ -32,16 +32,18 @@ class DailyPlanned:
     structure: dict
 
 
-# ---- Esqueleto semanal (spec 2026-08-03) ------------------------------------
-# Papéis por dia da semana (0=seg .. 6=dom). Descansos na ordem seg, sex, sáb.
-_REST_ORDER = (0, 4, 5)
+# ---- Esqueleto semanal (spec 2026-08-03, rev. 2026-08-04) -------------------
+# Papéis por dia da semana (0=seg .. 6=dom). DOMINGO é sempre off (nenhum
+# esqueleto prescreve o dia 6); dias de prova seguem bloqueados à parte.
+# Descansos na ordem seg, sex, qua.
+_REST_ORDER = (0, 4, 2)
 
 _SKELETON: dict[BlockType, dict[int, str]] = {
-    BlockType.BASE:     {1: "q1", 2: "z2var", 3: "q2", 4: "easy", 5: "short_z2", 6: "long"},
-    BlockType.BUILD:    {1: "q1", 2: "z2var", 3: "q2", 4: "easy", 5: "short_z2", 6: "long"},
-    BlockType.PEAK:     {1: "q1", 2: "z2var", 3: "q2", 4: "easy", 5: "easy", 6: "long"},
-    BlockType.TAPER:    {2: "openers", 3: "short_z2", 4: "easy", 6: "short_z2"},
-    BlockType.RECOVERY: {1: "easy", 2: "easy_z2", 3: "easy", 5: "easy_z2", 6: "short_z2"},
+    BlockType.BASE:     {1: "q1", 2: "z2var", 3: "q2", 4: "easy", 5: "long"},
+    BlockType.BUILD:    {1: "q1", 2: "z2var", 3: "q2", 4: "easy", 5: "long"},
+    BlockType.PEAK:     {1: "q1", 2: "z2var", 3: "q2", 4: "easy", 5: "long"},
+    BlockType.TAPER:    {2: "openers", 3: "short_z2", 4: "easy", 5: "short_z2"},
+    BlockType.RECOVERY: {1: "easy", 2: "easy_z2", 3: "easy", 5: "short_z2"},
 }
 
 _QUALITY: dict[BlockType, dict[str, tuple]] = {
@@ -59,6 +61,30 @@ _LONG_SHARE = {BlockType.BASE: 0.40, BlockType.BUILD: 0.40, BlockType.PEAK: 0.30
 _LONG_MIN_S = 2 * 3600
 _LONG_MAX_S = 5 * 3600
 _SHORT_Z2_CAP_S = 75 * 60
+_MIDWEEK_CAP_S = 210 * 60  # dia flex de quarta: até 3h30 (rev. 2026-08-04)
+
+
+def _scaled_variant(fn, ftp: float, target_tss: float, cap_s: int) -> StructuredWorkout:
+    """Variante de Z2 escalada ao TSS alvo, teto ``cap_s``.
+
+    Alonga apenas blocos "active" de ≥10 min no nível raiz — sprints de 10s
+    (dentro de Repeat) e aquecimento/volta à calma ficam intactos.
+    """
+    w = fn(ftp)
+    scalable = [el for el in w.elements
+                if getattr(el, "intensity", None) == "active" and el.duration_s >= 600]
+    if not scalable:
+        return w
+    base = analysis.estimated_tss(w)
+    factor = 1.0 if base <= 0 or target_tss <= 0 else max(0.5, target_tss / base)
+    for el in scalable:
+        el.duration_s = int(el.duration_s * factor)
+    excess = analysis.total_duration_s(w) - cap_s
+    if excess > 0:
+        total = sum(el.duration_s for el in scalable)
+        for el in scalable:
+            el.duration_s = max(600, el.duration_s - int(excess * el.duration_s / total))
+    return w
 
 
 def _long_for_tss(block: BlockType, ftp: float, target_tss: float) -> StructuredWorkout:
@@ -134,12 +160,13 @@ def allocate_days(
                 if today <= mid < race_date and mid not in blocked_days:
                     roles[mid] = "easy"
 
-        # 1) Dias de papel fixo.
+        # 1) Dias de papel fixo (qualidade, regenerativo, openers).
         fixed: dict[date, tuple[StructuredWorkout, WorkoutType]] = {}
         long_day = next((d for d, r in roles.items() if r == "long"), None)
+        flex_day = next((d for d, r in roles.items() if r == "z2var"), None)
         short_days = [d for d, r in roles.items() if r == "short_z2"]
         for d, r in roles.items():
-            if r in ("long", "short_z2"):
+            if r in ("long", "short_z2", "z2var"):
                 continue
             if r in ("q1", "q2"):
                 fn, wtype = _QUALITY[wk.block_type][r]
@@ -150,38 +177,46 @@ def allocate_days(
                 fixed[d] = (templates.recovery(ftp), WorkoutType.RECOVERY)
             elif r == "easy_z2":
                 fixed[d] = (templates.endurance(ftp), WorkoutType.ENDURANCE)
-            elif r == "z2var":
-                fixed[d] = (_Z2_ROTATION[i % len(_Z2_ROTATION)](ftp), WorkoutType.ENDURANCE)
         fixed_tss = sum(analysis.estimated_tss(w) for w, _ in fixed.values())
 
-        # 2) Longão (40% / 30% do TSS semanal) e Z2 curto absorvem o restante.
+        # 2) Longão de sábado (40% / 30% do TSS semanal); o dia flex de quarta
+        #    (variante de Z2, até 3h30) absorve o restante; Z2 curto fecha.
         loading = wk.block_type in _LONG_SHARE and not wk.is_recovery_week
         long_w: StructuredWorkout | None = None
         long_tss = 0.0
         if long_day is not None and loading:
             long_w = _long_for_tss(wk.block_type, ftp, wk.planned_tss * _LONG_SHARE[wk.block_type])
             long_tss = analysis.estimated_tss(long_w)
+        flex_w: StructuredWorkout | None = None
+        flex_tss = 0.0
+        if flex_day is not None:
+            variant = _Z2_ROTATION[i % len(_Z2_ROTATION)]
+            target = max(0.0, wk.planned_tss - fixed_tss - long_tss) if loading else 0.0
+            flex_w = _scaled_variant(variant, ftp, target, _MIDWEEK_CAP_S)
+            flex_tss = analysis.estimated_tss(flex_w)
         short_w: StructuredWorkout | None = None
         if short_days:
             # O restante divide igual entre os dias de Z2 curto.
             target = 0.0
             if loading:
-                target = max(0.0, wk.planned_tss - fixed_tss - long_tss) / len(short_days)
+                target = max(0.0, wk.planned_tss - fixed_tss - long_tss - flex_tss) / len(short_days)
             short_w = _scaled_endurance_capped(ftp, target, _SHORT_Z2_CAP_S)
 
         # 3) Excedente volta ao longão (até 5h); o resto é descartado e reportado.
         if loading:
             short_tss = (analysis.estimated_tss(short_w) if short_w else 0.0) * len(short_days)
-            leftover = wk.planned_tss - fixed_tss - long_tss - short_tss
+            leftover = wk.planned_tss - fixed_tss - long_tss - flex_tss - short_tss
             if leftover > 0 and long_w is not None:
                 long_w = _long_for_tss(wk.block_type, ftp, long_tss + leftover)
                 long_tss = analysis.estimated_tss(long_w)
-                leftover = wk.planned_tss - fixed_tss - long_tss - short_tss
+                leftover = wk.planned_tss - fixed_tss - long_tss - flex_tss - short_tss
             dropped_total += max(0.0, leftover)
 
         for d in sorted(roles):
             if d == long_day and long_w is not None:
                 out.append(_daily_from(d, _with_meta(long_w, ftp), WorkoutType.ENDURANCE))
+            elif d == flex_day and flex_w is not None:
+                out.append(_daily_from(d, _with_meta(flex_w, ftp), WorkoutType.ENDURANCE))
             elif d in short_days and short_w is not None:
                 out.append(_daily_from(d, _with_meta(short_w, ftp), WorkoutType.ENDURANCE))
             elif d in fixed:

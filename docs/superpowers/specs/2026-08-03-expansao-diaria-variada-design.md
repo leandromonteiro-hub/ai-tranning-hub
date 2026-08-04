@@ -124,3 +124,33 @@ próprio plano) continua; a regra acima roda na gravação dia a dia.
 
 Deploy `up -d --build api` (worker/beat não mudam). Depois, regenerar os dois
 planos pelo botão "Gerar plano" (a substituição por prova já existe).
+
+---
+
+## Revisão 2026-08-04 (feedback do atleta após o 1º uso)
+
+Correções na forma da semana, decididas com o Leandro:
+
+1. **Domingo é SEMPRE off** — nenhum esqueleto prescreve treino no domingo.
+   (Prova no domingo não é exceção de treino: dias de prova continuam
+   bloqueados, sem prescrição, como antes.)
+2. **Longão no SÁBADO** (não mais domingo). Mesmos parâmetros: 40% do TSS
+   semanal (30% no PEAK), 2h-5h.
+3. **Dia flex de meio de semana na QUARTA**: o dia "Z2 variado" (rotação
+   `z2_sprints`/`z2_progressivo`/`endurance`) deixa de ter duração fixa e
+   passa a absorver o TSS restante da semana, com teto de **3h30** (210 min).
+   A escala alonga só os blocos "active" com ≥10 min (sprints de 10s não
+   escalam). O excedente que não couber segue indo ao longão e depois para
+   `tss_dropped`.
+4. **Ordem dos descansos** vira **seg, sex, qua** (dom já é estrutural).
+
+Esqueletos revisados (sem domingo):
+
+| Bloco | ter | qua | qui | sex | sáb |
+|---|---|---|---|---|---|
+| BASE/BUILD/PEAK | qualidade 1 | **Z2 variado flex ≤3h30** | qualidade 2 | regenerativo* | **longão** |
+| TAPER | — | openers | Z2 curto | regenerativo* | Z2 curto |
+| RECOVERY | regenerativo | Z2 leve | regenerativo | descanso | Z2 curto |
+
+\* vira descanso quando `rest ≥ 2`; qua vira descanso quando `rest ≥ 3`.
+Semana da prova: regra do openers (prova−2) inalterada.
