@@ -182,3 +182,27 @@ quarta flex (cap 3h30) → sexta Z2 leve (cap 2h) → extensões Z2 de ter/qui
 
 Teto de semana resultante: ~16h / ~780-820 TSS — compatível com manter e
 construir CTL ~119.
+
+---
+
+## Revisão 3 — 2026-08-04 ("parece um repeat")
+
+Após a rev. 2, o volume ficou certo mas TODO dia útil saturou em 210 min e os
+intervalados nunca mudam ("Sweet Spot 3x12" para sempre). Decisões com o
+Leandro (aplicar as 3):
+
+1. **Progressão dos intervalados dentro do bloco** — templates de qualidade
+   ganham parâmetro `step` (0-2), avançando a cada semana de carga do mesmo
+   bloco e resetando no deload ou na troca de bloco:
+   - Sweet Spot: 3x12 → 4x12 → 5x12
+   - VO2max: 5x4 → 6x4 → 7x4
+   - Tempo: 2x20 → 2x25 → 3x20
+   - Força: 4x8 → 5x8 → 6x8 (50-60 rpm)
+   O nome do treino reflete o degrau (ex.: "Sweet Spot 4x12").
+2. **Ondulação dos dias de qualidade** — só UM dia de qualidade por semana
+   recebe a extensão Z2 (o "dia grande", até 3h30); o outro fica só com o
+   trabalho principal (~1h10-1h30). O dia grande alterna semana a semana
+   (ter ↔ qui). Custo aceito: ~-40-60 TSS/semana vs. a rev. 2.
+3. **Variantes de longão na BASE** — sábado alterna "Longão Z2" ↔ "Longão com
+   giros" (6×3 min a 100-110 rpm dentro do Z2). BUILD segue com "Longão com
+   tempo 3x15"; PEAK usa Z2 puro.
