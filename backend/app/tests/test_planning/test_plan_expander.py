@@ -83,13 +83,44 @@ def test_build_tem_vo2_tempo_e_longao_com_tempo():
     assert "tempo" in by_wd[5].structure["name"].lower()
 
 
-def test_deload_sem_longao():
+def test_deload_sem_longao_mas_entrega_o_alvo():
     wk = WeekSpec(MON, BlockType.RECOVERY, 400.0, True)
     days, _ = allocate_days([wk], ftp=FTP, race_date=RACE_FAR,
                             rest_per_week=1, today=MON)
     for d in days:
-        assert d.planned_duration_s <= 90 * 60
+        assert d.planned_duration_s <= 180 * 60  # deload: no máx 3h/dia
         assert "Longão" not in d.structure["name"]
+    # Rev. 2026-08-04: o deload escala os dias de Z2 para perto do alvo.
+    assert sum(d.planned_tss for d in days) >= 250
+
+
+def test_qualidade_estendida_com_z2_quando_sobra_tss():
+    days, _ = allocate_days([_base_week(tss=900.0)], ftp=FTP, race_date=RACE_FAR,
+                            rest_per_week=1, today=MON)
+    by_wd = {d.planned_date.weekday(): d for d in days}
+    # Ter (sweet spot) ganha extensão Z2: bem mais que os 71min do template…
+    assert by_wd[1].planned_duration_s > 150 * 60
+    assert by_wd[1].planned_duration_s <= 210 * 60
+    # …sem perder a identidade do treino.
+    assert by_wd[1].workout_type == WorkoutType.SWEET_SPOT
+    assert "Sweet Spot" in by_wd[1].structure["name"]
+
+
+def test_sexta_vira_z2_leve_quando_sobra_tss():
+    days, _ = allocate_days([_base_week(tss=900.0)], ftp=FTP, race_date=RACE_FAR,
+                            rest_per_week=1, today=MON)
+    by_wd = {d.planned_date.weekday(): d for d in days}
+    assert by_wd[4].workout_type == WorkoutType.ENDURANCE
+    assert 45 * 60 < by_wd[4].planned_duration_s <= 120 * 60
+
+
+def test_sexta_continua_regenerativa_sem_sobra():
+    # Semana leve: tudo cabe sem tocar na sexta.
+    days, _ = allocate_days([_base_week(tss=350.0)], ftp=FTP, race_date=RACE_FAR,
+                            rest_per_week=1, today=MON)
+    by_wd = {d.planned_date.weekday(): d for d in days}
+    assert by_wd[4].workout_type == WorkoutType.RECOVERY
+    assert by_wd[4].planned_duration_s == 45 * 60
 
 
 def test_rampa_semanal_preservada():

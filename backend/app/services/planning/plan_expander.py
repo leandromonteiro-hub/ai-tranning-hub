@@ -11,7 +11,7 @@ from datetime import date, timedelta
 
 from app.models.enums import BlockType, WorkoutType
 from app.services.workout import analysis, templates
-from app.services.workout.model import StructuredWorkout
+from app.services.workout.model import Step, StructuredWorkout, Target
 
 
 @dataclass
@@ -62,6 +62,34 @@ _LONG_MIN_S = 2 * 3600
 _LONG_MAX_S = 5 * 3600
 _SHORT_Z2_CAP_S = 75 * 60
 _MIDWEEK_CAP_S = 210 * 60  # dia flex de quarta: até 3h30 (rev. 2026-08-04)
+_FRIDAY_CAP_S = 120 * 60   # sexta Z2 leve em semana de carga: até 2h (rev. 2)
+_DELOAD_DAY_CAP_S = 180 * 60  # dias de Z2 do deload: até 3h (rev. 2)
+_ABSORB_MIN_TSS = 10.0     # sobra menor que isso não muda o desenho do dia
+_Z2_TSS_PER_H = 42.25      # TSS/h a IF 0.65 (Z2 0,62-0,68)
+
+
+def _pad_with_z2(w: StructuredWorkout, extra_tss: float, cap_s: int) -> StructuredWorkout:
+    """Extensão Z2 após o trabalho principal (rev. 2 2026-08-04).
+
+    Insere um bloco Z2 antes da volta à calma, dimensionado por ``extra_tss``,
+    sem passar de ``cap_s`` no total. Sobras <10 min são ignoradas.
+    """
+    if extra_tss <= 0:
+        return w
+    add_s = int(extra_tss / _Z2_TSS_PER_H * 3600)
+    add_s = min(add_s, cap_s - analysis.total_duration_s(w))
+    if add_s < 600:
+        return w
+    step = Step(intensity="active", duration_s=add_s,
+                target=Target(type="power_pct_ftp", low=0.62, high=0.68),
+                note="Extensão Z2 após o trabalho principal")
+    idx = next((k for k in range(len(w.elements) - 1, -1, -1)
+                if getattr(w.elements[k], "intensity", None) == "cooldown"), None)
+    if idx is None:
+        w.elements.append(step)
+    else:
+        w.elements.insert(idx, step)
+    return w
 
 
 def _scaled_variant(fn, ftp: float, target_tss: float, cap_s: int) -> StructuredWorkout:
@@ -161,67 +189,88 @@ def allocate_days(
                     roles[mid] = "easy"
 
         # 1) Dias de papel fixo (qualidade, regenerativo, openers).
-        fixed: dict[date, tuple[StructuredWorkout, WorkoutType]] = {}
+        assigned: dict[date, tuple[StructuredWorkout, WorkoutType]] = {}
         long_day = next((d for d, r in roles.items() if r == "long"), None)
         flex_day = next((d for d, r in roles.items() if r == "z2var"), None)
         short_days = [d for d, r in roles.items() if r == "short_z2"]
+        easy_z2_days = [d for d, r in roles.items() if r == "easy_z2"]
+        easy_days = [d for d, r in roles.items() if r == "easy"]
+        quality_days = [d for d, r in roles.items() if r in ("q1", "q2")]
         for d, r in roles.items():
-            if r in ("long", "short_z2", "z2var"):
-                continue
             if r in ("q1", "q2"):
                 fn, wtype = _QUALITY[wk.block_type][r]
-                fixed[d] = (fn(ftp), wtype)
+                assigned[d] = (fn(ftp), wtype)
             elif r == "openers":
-                fixed[d] = (templates.openers(ftp), WorkoutType.VO2MAX)
+                assigned[d] = (templates.openers(ftp), WorkoutType.VO2MAX)
             elif r == "easy":
-                fixed[d] = (templates.recovery(ftp), WorkoutType.RECOVERY)
-            elif r == "easy_z2":
-                fixed[d] = (templates.endurance(ftp), WorkoutType.ENDURANCE)
-        fixed_tss = sum(analysis.estimated_tss(w) for w, _ in fixed.values())
+                assigned[d] = (templates.recovery(ftp), WorkoutType.RECOVERY)
 
-        # 2) Longão de sábado (40% / 30% do TSS semanal); o dia flex de quarta
-        #    (variante de Z2, até 3h30) absorve o restante; Z2 curto fecha.
+        def _delivered() -> float:
+            return sum(analysis.estimated_tss(w) for w, _ in assigned.values())
+
         loading = wk.block_type in _LONG_SHARE and not wk.is_recovery_week
-        long_w: StructuredWorkout | None = None
-        long_tss = 0.0
-        if long_day is not None and loading:
-            long_w = _long_for_tss(wk.block_type, ftp, wk.planned_tss * _LONG_SHARE[wk.block_type])
-            long_tss = analysis.estimated_tss(long_w)
-        flex_w: StructuredWorkout | None = None
-        flex_tss = 0.0
-        if flex_day is not None:
-            variant = _Z2_ROTATION[i % len(_Z2_ROTATION)]
-            target = max(0.0, wk.planned_tss - fixed_tss - long_tss) if loading else 0.0
-            flex_w = _scaled_variant(variant, ftp, target, _MIDWEEK_CAP_S)
-            flex_tss = analysis.estimated_tss(flex_w)
-        short_w: StructuredWorkout | None = None
-        if short_days:
-            # O restante divide igual entre os dias de Z2 curto.
-            target = 0.0
-            if loading:
-                target = max(0.0, wk.planned_tss - fixed_tss - long_tss - flex_tss) / len(short_days)
-            short_w = _scaled_endurance_capped(ftp, target, _SHORT_Z2_CAP_S)
+        recovery_week = wk.is_recovery_week or wk.block_type == BlockType.RECOVERY
 
-        # 3) Excedente volta ao longão (até 5h); o resto é descartado e reportado.
         if loading:
-            short_tss = (analysis.estimated_tss(short_w) if short_w else 0.0) * len(short_days)
-            leftover = wk.planned_tss - fixed_tss - long_tss - flex_tss - short_tss
-            if leftover > 0 and long_w is not None:
-                long_w = _long_for_tss(wk.block_type, ftp, long_tss + leftover)
-                long_tss = analysis.estimated_tss(long_w)
-                leftover = wk.planned_tss - fixed_tss - long_tss - flex_tss - short_tss
-            dropped_total += max(0.0, leftover)
+            # Ordem de absorção (rev. 2): longão 40% → quarta flex → sexta Z2
+            # leve → extensões Z2 de ter/qui → longão de novo → descarte.
+            if long_day is not None:
+                assigned[long_day] = (
+                    _long_for_tss(wk.block_type, ftp, wk.planned_tss * _LONG_SHARE[wk.block_type]),
+                    WorkoutType.ENDURANCE,
+                )
+            if flex_day is not None:
+                variant = _Z2_ROTATION[i % len(_Z2_ROTATION)]
+                target = max(0.0, wk.planned_tss - _delivered())
+                assigned[flex_day] = (
+                    _scaled_variant(variant, ftp, target, _MIDWEEK_CAP_S),
+                    WorkoutType.ENDURANCE,
+                )
+            for d in short_days:  # só existe aqui via conversão da semana de prova
+                target = max(0.0, wk.planned_tss - _delivered()) / len(short_days)
+                assigned[d] = (_scaled_endurance_capped(ftp, target, _SHORT_Z2_CAP_S),
+                               WorkoutType.ENDURANCE)
+            leftover = wk.planned_tss - _delivered()
+            if leftover > _ABSORB_MIN_TSS and easy_days:
+                for d in easy_days:
+                    cur = analysis.estimated_tss(assigned[d][0])
+                    assigned[d] = (
+                        _scaled_endurance_capped(ftp, cur + leftover / len(easy_days), _FRIDAY_CAP_S),
+                        WorkoutType.ENDURANCE,
+                    )
+            leftover = wk.planned_tss - _delivered()
+            if leftover > _ABSORB_MIN_TSS and quality_days:
+                per = leftover / len(quality_days)
+                for d in quality_days:
+                    w, wtype = assigned[d]
+                    assigned[d] = (_pad_with_z2(w, per, _MIDWEEK_CAP_S), wtype)
+            leftover = wk.planned_tss - _delivered()
+            if leftover > 0 and long_day is not None:
+                cur = analysis.estimated_tss(assigned[long_day][0])
+                assigned[long_day] = (
+                    _long_for_tss(wk.block_type, ftp, cur + leftover),
+                    WorkoutType.ENDURANCE,
+                )
+            dropped_total += max(0.0, wk.planned_tss - _delivered())
+        elif recovery_week:
+            # Deload entrega o alvo (~60%): os dias de Z2 escalam até 3h (rev. 2).
+            flexers = easy_z2_days + short_days
+            if flexers:
+                target = max(0.0, wk.planned_tss - _delivered()) / len(flexers)
+                for d in flexers:
+                    assigned[d] = (_scaled_endurance_capped(ftp, target, _DELOAD_DAY_CAP_S),
+                                   WorkoutType.ENDURANCE)
+        else:
+            # TAPER: dias de Z2 curtos, sem escalar — leveza é o objetivo.
+            for d in short_days:
+                assigned[d] = (_scaled_endurance_capped(ftp, 0.0, _SHORT_Z2_CAP_S),
+                               WorkoutType.ENDURANCE)
+            for d in easy_z2_days:
+                assigned[d] = (templates.endurance(ftp), WorkoutType.ENDURANCE)
 
-        for d in sorted(roles):
-            if d == long_day and long_w is not None:
-                out.append(_daily_from(d, _with_meta(long_w, ftp), WorkoutType.ENDURANCE))
-            elif d == flex_day and flex_w is not None:
-                out.append(_daily_from(d, _with_meta(flex_w, ftp), WorkoutType.ENDURANCE))
-            elif d in short_days and short_w is not None:
-                out.append(_daily_from(d, _with_meta(short_w, ftp), WorkoutType.ENDURANCE))
-            elif d in fixed:
-                w, wtype = fixed[d]
-                out.append(_daily_from(d, _with_meta(w, ftp), wtype))
+        for d in sorted(assigned):
+            w, wtype = assigned[d]
+            out.append(_daily_from(d, _with_meta(w, ftp), wtype))
     return out, round(dropped_total, 1)
 
 
